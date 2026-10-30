@@ -1,5 +1,5 @@
 name: Build firmware (Betaflight or ArduPilot)
-run-name: "${{ inputs.firmware }} | ${{ inputs.version || 'default version' }} | board ${{ inputs.board }}"
+run-name: "${{ inputs.firmware }} | ${{ inputs.version || 'latest' }} | board ${{ inputs.board }}"
 on:
   workflow_dispatch:
     inputs:
@@ -11,29 +11,49 @@ on:
           - Betaflight
         default: ArduPilot
       version:
-        description: "STEP 2 - VERSION of that firmware, e.g. Copter-4.7.2 (ArduPilot) or 2026.6.2 (Betaflight). Blank = those defaults"
+        description: "STEP 2 - VERSION: latest = newest stable release (found automatically). Or type one, e.g. Copter-4.7.2 / 2026.6.2"
         required: false
-        default: ""
+        default: latest
       board:
-        description: "STEP 3 - BOARD, must match your flight controller. ArduPilot: board name in boot Messages. Betaflight: board_name in CLI diff all"
+        description: "STEP 3 - BOARD, must match your flight controller. Wrong name = stops in seconds and lists similar names"
         default: DAKEFPVH743
 
 jobs:
   ardupilot:
-    name: "ArduPilot ${{ inputs.version || 'Copter-4.7.2' }} on ${{ inputs.board }}: adjustable VTX power + MGRS on OSD"
+    name: "ArduPilot ${{ inputs.version || 'latest' }} on ${{ inputs.board }}: adjustable VTX power + MGRS on OSD"
     if: ${{ inputs.firmware == 'ArduPilot' }}
     runs-on: ubuntu-22.04
     container: ardupilot/ardupilot-dev-chibios:latest
     env:
-      TAG: ${{ inputs.version || 'Copter-4.7.2' }}
+      INPUT_VERSION: ${{ inputs.version }}
       BOARD: ${{ inputs.board }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get ArduPilot source
+      - name: Pick the version (blank or latest = newest stable release)
+        id: ver
         run: |
           git config --global --add safe.directory '*'
-          git clone --depth 1 --branch "$TAG" --recurse-submodules --shallow-submodules https://github.com/ArduPilot/ardupilot.git
+          V="$INPUT_VERSION"
+          if [ -z "$V" ] || [ "$V" = "latest" ]; then
+            V=$(git ls-remote --tags --refs https://github.com/ArduPilot/ardupilot 'refs/tags/Copter-*' | sed 's#.*refs/tags/##' | grep -E '^Copter-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          fi
+          [ -n "$V" ] || { echo "ERROR: could not work out a version"; exit 1; }
+          echo "Using ArduPilot $V"
+          echo "TAG=$V" >> "$GITHUB_ENV"
+          echo "tag=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Get ArduPilot source
+        run: git clone --depth 1 --branch "$TAG" --recurse-submodules --shallow-submodules https://github.com/ArduPilot/ardupilot.git
+
+      - name: Check the board exists in this version
+        run: |
+          if [ ! -f "ardupilot/libraries/AP_HAL_ChibiOS/hwdef/$BOARD/hwdef.dat" ]; then
+            echo "ERROR: '$BOARD' is not an ArduPilot $TAG board. Names that look similar:"
+            ls ardupilot/libraries/AP_HAL_ChibiOS/hwdef | grep -i "$(echo "$BOARD" | cut -c1-5)" || echo "(none)"
+            exit 1
+          fi
+          echo "Board $BOARD found"
 
       - name: Add the adjustable VTX power script
         run: |
@@ -59,20 +79,46 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ardupilot-${{ inputs.version || 'Copter-4.7.2' }}-${{ inputs.board }}-vtx-power-and-mgrs
+          name: ardupilot-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-vtx-power-and-mgrs
           path: |
             ardupilot/build/${{ inputs.board }}/bin/arducopter.apj
             ardupilot/build/${{ inputs.board }}/bin/arducopter_with_bl.hex
 
   betaflight:
-    name: "Betaflight ${{ inputs.version || '2026.6.2' }} on ${{ inputs.board }}: MGRS on OSD"
+    name: "Betaflight ${{ inputs.version || 'latest' }} on ${{ inputs.board }}: MGRS on OSD"
     if: ${{ inputs.firmware == 'Betaflight' }}
     runs-on: ubuntu-22.04
     env:
-      TAG: ${{ inputs.version || '2026.6.2' }}
+      INPUT_VERSION: ${{ inputs.version }}
       BOARD: ${{ inputs.board }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Pick the version (blank or latest = newest stable release)
+        id: ver
+        run: |
+          V="$INPUT_VERSION"
+          if [ -z "$V" ] || [ "$V" = "latest" ]; then
+            V=$(git ls-remote --tags --refs https://github.com/betaflight/betaflight | sed 's#.*refs/tags/##' | grep -E '^[0-9]{4}\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          fi
+          [ -n "$V" ] || { echo "ERROR: could not work out a version"; exit 1; }
+          echo "Using Betaflight $V"
+          echo "TAG=$V" >> "$GITHUB_ENV"
+          echo "tag=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Get Betaflight source
+        run: |
+          git clone --depth 1 --branch "$TAG" https://github.com/betaflight/betaflight.git bf
+          git -C bf submodule update --init --depth 1 -- src/config
+
+      - name: Check the board exists in this version
+        run: |
+          if [ -z "$(find bf/src/config/configs -type d -name "$BOARD" 2>/dev/null)" ]; then
+            echo "ERROR: '$BOARD' is not a Betaflight $TAG config. Names that look similar:"
+            find bf/src/config/configs -type d -iname "*$(echo "$BOARD" | cut -c1-5)*" 2>/dev/null | sed 's#.*/##' | sort -u | head -30
+            exit 1
+          fi
+          echo "Board $BOARD found"
 
       - name: Check MGRS converter against a reference library
         continue-on-error: true
@@ -80,11 +126,6 @@ jobs:
           pip3 install mgrs
           gcc -O2 -Wall -Wextra -Werror -o mgrs_osd/test_mgrs mgrs_osd/test_mgrs.c -lm
           python3 mgrs_osd/compare.py
-
-      - name: Get Betaflight source
-        run: |
-          git clone --depth 1 --branch "$TAG" https://github.com/betaflight/betaflight.git bf
-          git -C bf submodule update --init --depth 1 -- src/config
 
       - name: Patch OSD so MGRS replaces latitude/longitude
         run: python3 mgrs_osd/apply_betaflight.py bf
@@ -101,5 +142,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: betaflight-${{ inputs.version || '2026.6.2' }}-${{ inputs.board }}-mgrs
+          name: betaflight-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-mgrs
           path: bf/obj/*.hex
