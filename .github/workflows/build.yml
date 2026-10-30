@@ -1,46 +1,44 @@
 name: Build firmware (Betaflight or ArduPilot)
-run-name: "${{ inputs.firmware }} | ${{ inputs.fc_info != '' && 'version and board from pasted FC output' || format('{0} | board {1}', inputs.version || 'latest', inputs.board) }}"
+run-name: "${{ inputs.firmware }} (newest stable) | board ${{ inputs.board }}"
 on:
   workflow_dispatch:
     inputs:
       firmware:
-        description: "STEP 1 - FIRMWARE: ArduPilot (adjustable VTX power + MGRS on OSD) or Betaflight (MGRS on OSD)"
+        description: "STEP 1 - FIRMWARE: ArduPilot (adjustable VTX power + MGRS on OSD) or Betaflight (MGRS on OSD). Always the NEWEST stable version."
         type: choice
         options:
           - ArduPilot
           - Betaflight
         default: ArduPilot
-      fc_info:
-        description: "STEP 2 - PASTE from your FC (optional, wins over steps 3 and 4): ArduPilot boot Messages, or Betaflight CLI diff all / version"
+      board:
+        description: "STEP 2 - BOARD, must match your flight controller. Wrong name = stops in seconds and lists similar names"
+        default: DAKEFPVH743
+      options:
+        description: "OPTIONAL, Betaflight only: extra build features, space-separated, to match your current firmware. Blank = board defaults"
         required: false
         default: ""
-      version:
-        description: "STEP 3 - VERSION (skipped if you pasted): latest = newest stable. Or type one, e.g. Copter-4.7.2 / 2026.6.2"
-        required: false
-        default: latest
-      board:
-        description: "STEP 4 - BOARD (skipped if you pasted). Wrong name = stops in seconds and lists similar names"
-        default: DAKEFPVH743
 
 jobs:
   ardupilot:
-    name: "ArduPilot: adjustable VTX power + MGRS on OSD"
+    name: "ArduPilot (newest stable): adjustable VTX power + MGRS on OSD"
     if: ${{ inputs.firmware == 'ArduPilot' }}
     runs-on: ubuntu-22.04
     container: ardupilot/ardupilot-dev-chibios:latest
+    env:
+      BOARD: ${{ inputs.board }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Work out version and board (pasted FC output wins over the boxes)
+      - name: Find the newest stable ArduPilot version
         id: ver
-        env:
-          FIRMWARE: ArduPilot
-          FC_INFO: ${{ inputs.fc_info }}
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_BOARD: ${{ inputs.board }}
         run: |
           git config --global --add safe.directory '*'
-          python3 mgrs_osd/resolve_fc.py
+          echo "$BOARD" | grep -qE '^[A-Za-z0-9_-]+$' || { echo "ERROR: board name is empty or has odd characters: '$BOARD'"; exit 1; }
+          V=$(git ls-remote --tags --refs https://github.com/ArduPilot/ardupilot 'refs/tags/Copter-*' | sed 's#.*refs/tags/##' | grep -E '^Copter-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          [ -n "$V" ] || { echo "ERROR: could not work out the newest version"; exit 1; }
+          echo "Newest stable ArduPilot: $V"
+          echo "TAG=$V" >> "$GITHUB_ENV"
+          echo "tag=$V" >> "$GITHUB_OUTPUT"
 
       - name: Get ArduPilot source
         run: git clone --depth 1 --branch "$TAG" --recurse-submodules --shallow-submodules https://github.com/ArduPilot/ardupilot.git
@@ -78,26 +76,32 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ardupilot-${{ steps.ver.outputs.tag }}-${{ steps.ver.outputs.board }}-vtx-power-and-mgrs
+          name: ardupilot-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-vtx-power-and-mgrs
           path: |
-            ardupilot/build/${{ steps.ver.outputs.board }}/bin/arducopter.apj
-            ardupilot/build/${{ steps.ver.outputs.board }}/bin/arducopter_with_bl.hex
+            ardupilot/build/${{ inputs.board }}/bin/arducopter.apj
+            ardupilot/build/${{ inputs.board }}/bin/arducopter_with_bl.hex
 
   betaflight:
-    name: "Betaflight: MGRS on OSD"
+    name: "Betaflight (newest stable): MGRS on OSD"
     if: ${{ inputs.firmware == 'Betaflight' }}
     runs-on: ubuntu-22.04
+    env:
+      BOARD: ${{ inputs.board }}
+      BF_OPTIONS: ${{ inputs.options }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Work out version and board (pasted FC output wins over the boxes)
+      - name: Find the newest stable Betaflight version
         id: ver
-        env:
-          FIRMWARE: Betaflight
-          FC_INFO: ${{ inputs.fc_info }}
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_BOARD: ${{ inputs.board }}
-        run: python3 mgrs_osd/resolve_fc.py
+        run: |
+          echo "$BOARD" | grep -qE '^[A-Za-z0-9_-]+$' || { echo "ERROR: board name is empty or has odd characters: '$BOARD'"; exit 1; }
+          echo "$BF_OPTIONS" | grep -qE '^[A-Za-z0-9_ ]*$' || { echo "ERROR: options may only have letters, digits, _ and spaces"; exit 1; }
+          V=$(git ls-remote --tags --refs https://github.com/betaflight/betaflight | sed 's#.*refs/tags/##' | grep -E '^[0-9]{4}\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          [ -n "$V" ] || { echo "ERROR: could not work out the newest version"; exit 1; }
+          echo "Newest stable Betaflight: $V"
+          echo "Extra build options: '$BF_OPTIONS'"
+          echo "TAG=$V" >> "$GITHUB_ENV"
+          echo "tag=$V" >> "$GITHUB_OUTPUT"
 
       - name: Get Betaflight source
         run: |
@@ -131,9 +135,9 @@ jobs:
         working-directory: bf
         run: |
           make configs
-          make CONFIG="$BOARD"
+          make CONFIG="$BOARD" OPTIONS="$BF_OPTIONS"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: betaflight-${{ steps.ver.outputs.tag }}-${{ steps.ver.outputs.board }}-mgrs
+          name: betaflight-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-mgrs
           path: bf/obj/*.hex
