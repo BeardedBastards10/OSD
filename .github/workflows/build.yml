@@ -1,27 +1,41 @@
-name: Build ArduCopter with vtx_power.lua and MGRS OSD
+name: Build firmware (Betaflight or ArduPilot)
+run-name: "${{ inputs.firmware }} build for ${{ inputs.board }}"
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: ArduPilot git tag to build
-        default: Copter-4.7.2
+      firmware:
+        description: "Which firmware? ArduPilot = adjustable VTX power + MGRS on OSD. Betaflight = MGRS on OSD."
+        type: choice
+        options:
+          - ArduPilot
+          - Betaflight
+        default: ArduPilot
+      version:
+        description: "Version tag. Blank = ArduPilot Copter-4.7.2 / Betaflight 2026.6.2"
+        required: false
+        default: ""
       board:
-        description: Board name
+        description: "Board. ArduPilot board name / Betaflight config name"
         default: DAKEFPVH743
 
 jobs:
-  build:
+  ardupilot:
+    name: "ArduPilot: adjustable VTX power + MGRS on OSD"
+    if: ${{ inputs.firmware == 'ArduPilot' }}
     runs-on: ubuntu-22.04
     container: ardupilot/ardupilot-dev-chibios:latest
+    env:
+      TAG: ${{ inputs.version || 'Copter-4.7.2' }}
+      BOARD: ${{ inputs.board }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Get ArduPilot source
         run: |
           git config --global --add safe.directory '*'
-          git clone --depth 1 --branch "${{ inputs.tag }}" --recurse-submodules --shallow-submodules https://github.com/ArduPilot/ardupilot.git
+          git clone --depth 1 --branch "$TAG" --recurse-submodules --shallow-submodules https://github.com/ArduPilot/ardupilot.git
 
-      - name: Embed the Lua script
+      - name: Add the adjustable VTX power script
         run: |
           mkdir -p ardupilot/ROMFS_custom/scripts
           cp vtx_power.lua ardupilot/ROMFS_custom/scripts/
@@ -40,12 +54,52 @@ jobs:
       - name: Build
         working-directory: ardupilot
         run: |
-          ./waf configure --board "${{ inputs.board }}"
+          ./waf configure --board "$BOARD"
           ./waf copter
 
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ inputs.board }}
+          name: ardupilot-${{ inputs.board }}-vtx-power-and-mgrs
           path: |
             ardupilot/build/${{ inputs.board }}/bin/arducopter.apj
             ardupilot/build/${{ inputs.board }}/bin/arducopter_with_bl.hex
+
+  betaflight:
+    name: "Betaflight: MGRS on OSD"
+    if: ${{ inputs.firmware == 'Betaflight' }}
+    runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ inputs.version || '2026.6.2' }}
+      BOARD: ${{ inputs.board }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check MGRS converter against a reference library
+        continue-on-error: true
+        run: |
+          pip3 install mgrs
+          gcc -O2 -Wall -Wextra -Werror -o mgrs_osd/test_mgrs mgrs_osd/test_mgrs.c -lm
+          python3 mgrs_osd/compare.py
+
+      - name: Get Betaflight source
+        run: |
+          git clone --depth 1 --branch "$TAG" https://github.com/betaflight/betaflight.git bf
+          git -C bf submodule update --init --depth 1 -- src/config
+
+      - name: Patch OSD so MGRS replaces latitude/longitude
+        run: python3 mgrs_osd/apply_betaflight.py bf
+
+      - name: Install ARM toolchain
+        working-directory: bf
+        run: make arm_sdk_install
+
+      - name: Build
+        working-directory: bf
+        run: |
+          make configs
+          make CONFIG="$BOARD"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: betaflight-${{ inputs.board }}-mgrs
+          path: bf/obj/*.hex
