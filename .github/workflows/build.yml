@@ -1,0 +1,51 @@
+name: Build ArduCopter with vtx_power.lua and MGRS OSD
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: ArduPilot git tag to build
+        default: Copter-4.7.2
+      board:
+        description: Board name
+        default: DAKEFPVH743
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container: ardupilot/ardupilot-dev-chibios:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get ArduPilot source
+        run: |
+          git config --global --add safe.directory '*'
+          git clone --depth 1 --branch "${{ inputs.tag }}" --recurse-submodules --shallow-submodules https://github.com/ArduPilot/ardupilot.git
+
+      - name: Embed the Lua script
+        run: |
+          mkdir -p ardupilot/ROMFS_custom/scripts
+          cp vtx_power.lua ardupilot/ROMFS_custom/scripts/
+          ls -l ardupilot/ROMFS_custom/scripts
+
+      - name: Check MGRS converter against a reference library
+        continue-on-error: true
+        run: |
+          pip3 install mgrs
+          gcc -O2 -Wall -Wextra -Werror -o mgrs_osd/test_mgrs mgrs_osd/test_mgrs.c -lm
+          python3 mgrs_osd/compare.py
+
+      - name: Patch OSD so MGRS replaces latitude/longitude
+        run: python3 mgrs_osd/apply_ardupilot.py ardupilot
+
+      - name: Build
+        working-directory: ardupilot
+        run: |
+          ./waf configure --board "${{ inputs.board }}"
+          ./waf copter
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ inputs.board }}
+          path: |
+            ardupilot/build/${{ inputs.board }}/bin/arducopter.apj
+            ardupilot/build/${{ inputs.board }}/bin/arducopter_with_bl.hex
