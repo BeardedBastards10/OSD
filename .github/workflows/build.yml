@@ -1,26 +1,26 @@
 name: Build firmware (Betaflight or ArduPilot)
-run-name: "${{ inputs.firmware }} build for ${{ inputs.board }}"
+run-name: "${{ inputs.firmware }} | ${{ inputs.version || 'default version' }} | board ${{ inputs.board }}"
 on:
   workflow_dispatch:
     inputs:
       firmware:
-        description: "Which firmware? ArduPilot = adjustable VTX power + MGRS on OSD. Betaflight = MGRS on OSD."
+        description: "STEP 1 - FIRMWARE: ArduPilot (adjustable VTX power + MGRS on OSD) or Betaflight (MGRS on OSD)"
         type: choice
         options:
           - ArduPilot
           - Betaflight
         default: ArduPilot
       version:
-        description: "Version tag. Blank = ArduPilot Copter-4.7.2 / Betaflight 2026.6.2"
+        description: "STEP 2 - VERSION of that firmware, e.g. Copter-4.7.2 (ArduPilot) or 2026.6.2 (Betaflight). Blank = those defaults"
         required: false
         default: ""
       board:
-        description: "Board. ArduPilot board name / Betaflight config name"
+        description: "STEP 3 - BOARD, must match your flight controller. ArduPilot: board name in boot Messages. Betaflight: board_name in CLI diff all"
         default: DAKEFPVH743
 
 jobs:
   ardupilot:
-    name: "ArduPilot: adjustable VTX power + MGRS on OSD"
+    name: "ArduPilot ${{ inputs.version || 'Copter-4.7.2' }} on ${{ inputs.board }}: adjustable VTX power + MGRS on OSD"
     if: ${{ inputs.firmware == 'ArduPilot' }}
     runs-on: ubuntu-22.04
     container: ardupilot/ardupilot-dev-chibios:latest
@@ -59,13 +59,13 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ardupilot-${{ inputs.board }}-vtx-power-and-mgrs
+          name: ardupilot-${{ inputs.version || 'Copter-4.7.2' }}-${{ inputs.board }}-vtx-power-and-mgrs
           path: |
             ardupilot/build/${{ inputs.board }}/bin/arducopter.apj
             ardupilot/build/${{ inputs.board }}/bin/arducopter_with_bl.hex
 
   betaflight:
-    name: "Betaflight: MGRS on OSD"
+    name: "Betaflight ${{ inputs.version || '2026.6.2' }} on ${{ inputs.board }}: MGRS on OSD"
     if: ${{ inputs.firmware == 'Betaflight' }}
     runs-on: ubuntu-22.04
     env:
@@ -101,5 +101,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: betaflight-${{ inputs.board }}-mgrs
+          name: betaflight-${{ inputs.version || '2026.6.2' }}-${{ inputs.board }}-mgrs
           path: bf/obj/*.hex
