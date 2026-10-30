@@ -1,5 +1,5 @@
 name: Build firmware (Betaflight or ArduPilot)
-run-name: "${{ inputs.firmware }} | ${{ inputs.version || 'latest' }} | board ${{ inputs.board }}"
+run-name: "${{ inputs.firmware }} | ${{ inputs.fc_info != '' && 'version and board from pasted FC output' || format('{0} | board {1}', inputs.version || 'latest', inputs.board) }}"
 on:
   workflow_dispatch:
     inputs:
@@ -10,38 +10,37 @@ on:
           - ArduPilot
           - Betaflight
         default: ArduPilot
+      fc_info:
+        description: "STEP 2 - PASTE from your FC (optional, wins over steps 3 and 4): ArduPilot boot Messages, or Betaflight CLI diff all / version"
+        required: false
+        default: ""
       version:
-        description: "STEP 2 - VERSION: latest = newest stable release (found automatically). Or type one, e.g. Copter-4.7.2 / 2026.6.2"
+        description: "STEP 3 - VERSION (skipped if you pasted): latest = newest stable. Or type one, e.g. Copter-4.7.2 / 2026.6.2"
         required: false
         default: latest
       board:
-        description: "STEP 3 - BOARD, must match your flight controller. Wrong name = stops in seconds and lists similar names"
+        description: "STEP 4 - BOARD (skipped if you pasted). Wrong name = stops in seconds and lists similar names"
         default: DAKEFPVH743
 
 jobs:
   ardupilot:
-    name: "ArduPilot ${{ inputs.version || 'latest' }} on ${{ inputs.board }}: adjustable VTX power + MGRS on OSD"
+    name: "ArduPilot: adjustable VTX power + MGRS on OSD"
     if: ${{ inputs.firmware == 'ArduPilot' }}
     runs-on: ubuntu-22.04
     container: ardupilot/ardupilot-dev-chibios:latest
-    env:
-      INPUT_VERSION: ${{ inputs.version }}
-      BOARD: ${{ inputs.board }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pick the version (blank or latest = newest stable release)
+      - name: Work out version and board (pasted FC output wins over the boxes)
         id: ver
+        env:
+          FIRMWARE: ArduPilot
+          FC_INFO: ${{ inputs.fc_info }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BOARD: ${{ inputs.board }}
         run: |
           git config --global --add safe.directory '*'
-          V="$INPUT_VERSION"
-          if [ -z "$V" ] || [ "$V" = "latest" ]; then
-            V=$(git ls-remote --tags --refs https://github.com/ArduPilot/ardupilot 'refs/tags/Copter-*' | sed 's#.*refs/tags/##' | grep -E '^Copter-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-          fi
-          [ -n "$V" ] || { echo "ERROR: could not work out a version"; exit 1; }
-          echo "Using ArduPilot $V"
-          echo "TAG=$V" >> "$GITHUB_ENV"
-          echo "tag=$V" >> "$GITHUB_OUTPUT"
+          python3 mgrs_osd/resolve_fc.py
 
       - name: Get ArduPilot source
         run: git clone --depth 1 --branch "$TAG" --recurse-submodules --shallow-submodules https://github.com/ArduPilot/ardupilot.git
@@ -79,32 +78,26 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ardupilot-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-vtx-power-and-mgrs
+          name: ardupilot-${{ steps.ver.outputs.tag }}-${{ steps.ver.outputs.board }}-vtx-power-and-mgrs
           path: |
-            ardupilot/build/${{ inputs.board }}/bin/arducopter.apj
-            ardupilot/build/${{ inputs.board }}/bin/arducopter_with_bl.hex
+            ardupilot/build/${{ steps.ver.outputs.board }}/bin/arducopter.apj
+            ardupilot/build/${{ steps.ver.outputs.board }}/bin/arducopter_with_bl.hex
 
   betaflight:
-    name: "Betaflight ${{ inputs.version || 'latest' }} on ${{ inputs.board }}: MGRS on OSD"
+    name: "Betaflight: MGRS on OSD"
     if: ${{ inputs.firmware == 'Betaflight' }}
     runs-on: ubuntu-22.04
-    env:
-      INPUT_VERSION: ${{ inputs.version }}
-      BOARD: ${{ inputs.board }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pick the version (blank or latest = newest stable release)
+      - name: Work out version and board (pasted FC output wins over the boxes)
         id: ver
-        run: |
-          V="$INPUT_VERSION"
-          if [ -z "$V" ] || [ "$V" = "latest" ]; then
-            V=$(git ls-remote --tags --refs https://github.com/betaflight/betaflight | sed 's#.*refs/tags/##' | grep -E '^[0-9]{4}\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-          fi
-          [ -n "$V" ] || { echo "ERROR: could not work out a version"; exit 1; }
-          echo "Using Betaflight $V"
-          echo "TAG=$V" >> "$GITHUB_ENV"
-          echo "tag=$V" >> "$GITHUB_OUTPUT"
+        env:
+          FIRMWARE: Betaflight
+          FC_INFO: ${{ inputs.fc_info }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BOARD: ${{ inputs.board }}
+        run: python3 mgrs_osd/resolve_fc.py
 
       - name: Get Betaflight source
         run: |
@@ -142,5 +135,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: betaflight-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-mgrs
+          name: betaflight-${{ steps.ver.outputs.tag }}-${{ steps.ver.outputs.board }}-mgrs
           path: bf/obj/*.hex
