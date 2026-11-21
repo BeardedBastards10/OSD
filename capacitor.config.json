@@ -1,0 +1,9 @@
+{
+  "appId": "com.mgrsosd.builder",
+  "appName": "Firmware Builder",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#0e141b",
+    "adjustMarginsForEdgeToEdge": "force"
+  }
+}

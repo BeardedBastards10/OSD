@@ -104,7 +104,7 @@ const store = {
 
 const BF_API = "https://build.betaflight.com/api";
 const BF_BASELINE = "USE_SERIALRX_CRSF USE_TELEMETRY USE_TELEMETRY_CRSF USE_OSD_SD USE_DSHOT USE_ALTITUDE_HOLD USE_CAMERA_CONTROL USE_FLIGHT_PLAN USE_GPS USE_OPTICALFLOW USE_MAG USE_PINIO USE_POSITION_HOLD USE_RANGEFINDER USE_SERVOS USE_VTX".split(" ");
-const STEPS = ["Firmware","Board","Options","Battery & OSD","Build"];
+const STEPS = ["Firmware","Board","Options","Build"];
 
 const S = {
   fw: null, version: null, board: null,
@@ -266,59 +266,6 @@ async function panelOptions(p){
   upd();
 }
 
-function settingsText(){
-  const cells = +S.cells;
-  if (S.fw === "ArduPilot") {
-    const a = ["# Load now: Mission Planner, Config, Full Parameter List, Load from file, then Write Params",
-      "OSD_CELL_COUNT," + cells,
-      "OSD1_AVGCELLV_EN,1", "OSD1_AVGCELLV_X," + S.avgX, "OSD1_AVGCELLV_Y," + S.avgY, "OSD1_CELLVOLT_EN,0"];
-    if (S.mgrs) a.push("OSD1_GPSLAT_EN,1", "OSD1_GPSLONG_EN,0", "OSD1_PLUSCODE_EN,0");
-    if (S.vtx) a.push("SCR_ENABLE,1", "VTX_ENABLE,0", "SERIAL" + S.uart + "_PROTOCOL,28");
-    let b = "";
-    if (S.vtx) b = ["# Load after the first boot with this firmware (these appear once the script has run)", "VTXA_PWR_CH," + S.pwrCh].join("\n");
-    return [a.join("\n"), b];
-  }
-  const a = ["# Betaflight CLI. Paste, then type save",
-    "set force_battery_cell_count = " + cells];
-  return [a.join("\n"), ""];
-}
-function panelBattery(p){
-  const ap = S.fw === "ArduPilot";
-  const opts = [`<option value="0" ${S.cells === "0" ? "selected" : ""}>Auto-detect</option>`]
-    .concat(Array.from({ length: 14 }, (_, i) => `<option value="${i + 1}" ${S.cells === String(i + 1) ? "selected" : ""}>${i + 1}S</option>`)).join("");
-  p.innerHTML = `<h2>4. Battery and OSD settings</h2>
-  <p class="help">This does not change the build. It makes a settings file for after you flash.</p>
-  <div class="note"><strong>The OSD shows one number: the average cell voltage.</strong> The flight controller only measures the whole pack and divides it by the cell count you set here. The count itself is never drawn on screen. Separate cell readings need a balance-lead monitor, which these boards do not have.</div>
-  <label class="field"><span>Cells in your pack (a setting only, it is not drawn on the OSD)</span><select id="cells">${opts}</select></label>
-  ${ap ? `<div class="grid">
-    <label class="field"><span>Average cell element, X</span><input type="number" id="ax" min="0" max="49" value="${S.avgX}"></label>
-    <label class="field"><span>Average cell element, Y</span><input type="number" id="ay" min="0" max="15" value="${S.avgY}"></label>
-    ${S.vtx ? `<label class="field"><span>VTX serial port (UART number)</span><input type="number" id="uart" min="1" max="8" value="${S.uart}"></label>
-    <label class="field"><span>VTX power switch channel</span><input type="number" id="pch" min="1" max="16" value="${S.pwrCh}"></label>` : ""}
-  </div>` : `<p class="help">In Configurator's OSD tab, also turn on the average cell voltage element and place it. Position cannot be set from the CLI here without the encoded number.</p>`}
-  <div id="out"></div>`;
-  const out = () => {
-    const [a, b] = settingsText();
-    $("#out").innerHTML = `<div class="field"><span>${ap ? "Settings file, part 1" : "CLI commands"}</span><pre>${esc(a)}</pre><div class="actions"><button class="btn ghost" data-dl="0" type="button">Download</button><button class="btn ghost" data-cp="0" type="button">Copy</button></div></div>`
-      + (b ? `<div class="field"><span>Settings file, part 2 (after first boot)</span><pre>${esc(b)}</pre><div class="actions"><button class="btn ghost" data-dl="1" type="button">Download</button><button class="btn ghost" data-cp="1" type="button">Copy</button></div></div>` : "")
-      + (ap && +S.cells === 0 ? `<div class="note warn"><code>OSD_CELL_COUNT</code> 0 guesses the cell count from the voltage, and the guess can be one cell off (a freshly charged 6S at 25.2 V counts as 7). The default of -1 shows only dashes. Pick your real count.</div>` : "");
-  };
-  $("#cells").onchange = e => { S.cells = e.target.value; out(); };
-  if (ap) {
-    $("#ax").oninput = e => { S.avgX = +e.target.value; out(); };
-    $("#ay").oninput = e => { S.avgY = +e.target.value; out(); };
-    if (S.vtx) { $("#uart").oninput = e => { S.uart = +e.target.value || 4; out(); }; $("#pch").oninput = e => { S.pwrCh = +e.target.value || 10; out(); }; }
-  }
-  p.onclick = e => {
-    const d = e.target.closest("[data-dl]"), c = e.target.closest("[data-cp]");
-    if (d) { const t = settingsText()[+d.dataset.dl] + "\n"; const ext = ap ? ".param" : ".txt";
-      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([t], { type: "text/plain" }));
-      a.download = (ap ? (d.dataset.dl === "0" ? "settings-part1" : "settings-part2") : "battery-cli") + ext; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
-    if (c) { const t = settingsText()[+c.dataset.cp]; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => c.textContent = "Copied", () => c.textContent = "Copy failed"); }
-  };
-  out();
-}
-
 /* ---------- build + GitHub ---------- */
 function inputsForRun(){
   return {
@@ -336,9 +283,35 @@ async function gh(path, opt = {}){
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* Android app (Capacitor): the WebView cannot follow GitHub's redirect to the file or save blob downloads,
+   so the app asks for the redirect itself, downloads natively and hands the zip to the share sheet. */
+const NATIVE = () => { const c = window.Capacitor; return !!(c && c.isNativePlatform && c.isNativePlatform()); };
+const plug = n => { const c = window.Capacitor; return (c.Plugins && c.Plugins[n]) || (c.registerPlugin && c.registerPlugin(n)); };
+async function saveArtifact(id, name){
+  const path = `/repos/${S.repo}/actions/artifacts/${id}/zip`;
+  if (NATIVE()) {
+    const http = plug("CapacitorHttp");
+    const headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", Authorization: "Bearer " + S.token };
+    const r1 = await http.request({ url: "https://api.github.com" + path, method: "GET", headers, disableRedirects: true });
+    const h = r1.headers || {}; const loc = h.Location || h.location;
+    if (!loc) throw new Error("no download link, status " + r1.status);
+    const r2 = await http.request({ url: loc, method: "GET", responseType: "blob" });
+    if (r2.status >= 400) throw new Error("status " + r2.status);
+    const f = name + ".zip";
+    const { uri } = await plug("Filesystem").writeFile({ path: f, data: r2.data, directory: "CACHE" });
+    try { await plug("Share").share({ title: f, files: [uri] }); }
+    catch (e) { if (!/cancel/i.test(String(e && e.message || e))) throw e; }
+    return;
+  }
+  const r = await gh(path);
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a"); a.href = url; a.download = name + ".zip"; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 function panelBuild(p){
   const i = inputsForRun();
-  p.innerHTML = `<h2>5. Build</h2>
+  p.innerHTML = `<h2>4. Build</h2>
   <dl class="summary">
     <dt>Firmware</dt><dd>${esc(i.firmware)}${S.fw === "ArduPilot" ? " Copter" : ""}, newest stable (now ${esc(S.version)})</dd>
     <dt>Board</dt><dd>${esc(i.board)}</dd>
@@ -391,11 +364,9 @@ async function runBuild(){
     st.onclick = async e => {
       const b = e.target.closest("[data-art]"); if (!b) return; b.disabled = true; b.textContent = "Downloading...";
       try {
-        const r = await gh(`/repos/${S.repo}/actions/artifacts/${b.dataset.art}/zip`);
-        const url = URL.createObjectURL(await r.blob());
-        const a = document.createElement("a"); a.href = url; a.download = b.dataset.name + ".zip"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+        await saveArtifact(b.dataset.art, b.dataset.name);
         b.textContent = "Saved";
-      } catch { b.textContent = "Blocked by the browser. Use the run page link."; }
+      } catch (err) { b.textContent = "Could not download (" + (err && err.message || "blocked") + "). Use the run page link."; }
       b.disabled = false;
     };
   } catch (e) {
@@ -409,15 +380,15 @@ async function render(){
   stepper();
   const p = $("#panel"); p.onclick = null;
   $("#back").disabled = step === 0;
-  $("#next").textContent = step === 3 ? "Review and build" : "Next";
-  $("#next").style.display = step === 4 ? "none" : "";
+  $("#next").textContent = step === 2 ? "Review and build" : "Next";
+  $("#next").style.display = step === 3 ? "none" : "";
   $("#next").disabled = !canNext();
-  const fn = [panelFirmware, panelBoard, panelOptions, panelBattery, panelBuild][step];
+  const fn = [panelFirmware, panelBoard, panelOptions, panelBuild][step];
   try { await fn(p); } catch (e) { p.innerHTML = `<h2>Something went wrong</h2><p class="bad">${esc(e.message)}</p><p class="help">Go back one step and try again.</p>`; }
   $("#next").disabled = !canNext();
 }
 $("#back").onclick = () => { if (step > 0) { step--; render(); window.scrollTo(0, 0); } };
-$("#next").onclick = () => { if (canNext() && step < 4) { step++; render(); window.scrollTo(0, 0); } };
+$("#next").onclick = () => { if (canNext() && step < 3) { step++; render(); window.scrollTo(0, 0); } };
 render();
 </script>
 </body>
