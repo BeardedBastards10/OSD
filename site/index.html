@@ -317,7 +317,7 @@ function panelBattery(p){
     const [a, b] = settingsText();
     $("#out").innerHTML = `<div class="field"><span>${ap ? "Settings file, part 1" : "CLI commands"}</span><pre>${esc(a)}</pre><div class="actions"><button class="btn ghost" data-dl="0" type="button">Download</button><button class="btn ghost" data-cp="0" type="button">Copy</button></div></div>`
       + (b ? `<div class="field"><span>Settings file, part 2 (after first boot)</span><pre>${esc(b)}</pre><div class="actions"><button class="btn ghost" data-dl="1" type="button">Download</button><button class="btn ghost" data-cp="1" type="button">Copy</button></div></div>` : "")
-      + (ap && +S.cells === 0 ? `<div class="note warn"><code>OSD_CELL_COUNT</code> 0 guesses the cell count from the voltage, so a half-empty pack can read wrong. Pick your real count if you always use the same pack.</div>` : "");
+      + (ap && +S.cells === 0 ? `<div class="note warn"><code>OSD_CELL_COUNT</code> 0 guesses the cell count from the voltage, and the guess can be one cell off (a freshly charged 6S at 25.2 V counts as 7). The default of -1 shows only dashes. Pick your real count.</div>` : "");
   };
   $("#cells").onchange = e => { S.cells = e.target.value; out(); };
   if (ap) {
