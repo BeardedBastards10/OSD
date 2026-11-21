@@ -82,7 +82,7 @@ a{color:var(--accent)}
 <body>
 <div class="wrap">
   <h1>Firmware Builder</h1>
-  <p class="sub">Pick your firmware, version and board from the official lists. Your custom build (MGRS on OSD, adjustable VTX power) is compiled on GitHub.</p>
+  <p class="sub">Pick your firmware and board from the official lists. You always get the newest stable release. Your custom build (MGRS on OSD, adjustable VTX power) is compiled on GitHub.</p>
   <ol class="steps" id="steps" aria-label="Progress"></ol>
   <section class="panel" id="panel" aria-live="polite"></section>
   <div class="nav">
@@ -104,7 +104,7 @@ const store = {
 
 const BF_API = "https://build.betaflight.com/api";
 const BF_BASELINE = "USE_SERIALRX_CRSF USE_TELEMETRY USE_TELEMETRY_CRSF USE_OSD_SD USE_DSHOT USE_ALTITUDE_HOLD USE_CAMERA_CONTROL USE_FLIGHT_PLAN USE_GPS USE_OPTICALFLOW USE_MAG USE_PINIO USE_POSITION_HOLD USE_RANGEFINDER USE_SERVOS USE_VTX".split(" ");
-const STEPS = ["Firmware","Version","Board","Options","Battery & OSD","Build"];
+const STEPS = ["Firmware","Board","Options","Battery & OSD","Build"];
 
 const S = {
   fw: null, version: null, board: null,
@@ -147,8 +147,7 @@ function initBF(o){
 }
 function canNext(){
   if (step === 0) return !!S.fw;
-  if (step === 1) return !!S.version;
-  if (step === 2) return !!S.board;
+  if (step === 1) return !!S.board;
   return true;
 }
 
@@ -171,40 +170,25 @@ function panelFirmware(p){
   };
 }
 
-async function panelVersion(p){
-  p.innerHTML = `<h2>2. Choose version</h2><p>Loading the official list...</p>`;
-  let items;
-  try {
-    if (S.fw === "ArduPilot") {
-      const d = await loadAP();
-      items = d.versions.map((v, i) => ({ id: v, label: "Copter " + v, sub: "", newest: i === 0 }));
-    } else {
-      const r = await loadBFReleases();
-      items = r.map((x, i) => ({ id: x.release, label: "Betaflight " + x.release, sub: x.label || x.date || "", newest: i === 0 }));
-    }
-  } catch (e) { p.innerHTML = `<h2>2. Choose version</h2><p class="bad">Could not load the list: ${esc(e.message)}</p>`; return; }
-  if (!S.version) S.version = items[0].id;
-  p.innerHTML = `<h2>2. Choose version</h2><p class="help">Stable releases only. The newest one is what the MGRS patches were tested on. An older one may stop at the patch step, which only wastes a couple of minutes.</p>
-  <div class="list">${items.map(it => `<button class="row" data-v="${esc(it.id)}" aria-pressed="${S.version === it.id}"><span class="grow">${esc(it.label)} <small>${esc(it.sub)}</small></span>${it.newest ? '<span class="badge">newest, tested</span>' : '<span class="badge warn">not tested</span>'}</button>`).join("")}</div>`;
-  p.onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; S.version = b.dataset.v; S.board = null; render(); };
-}
-
 async function panelBoard(p){
-  p.innerHTML = `<h2>3. Choose your board</h2><p>Loading the official list...</p>`;
+  p.innerHTML = `<h2>2. Choose your board</h2><p>Loading the official list...</p>`;
   let all, mcus = [];
   try {
     if (S.fw === "ArduPilot") {
       const d = await loadAP();
-      all = Object.entries(d.boards).filter(([, b]) => b.v.includes(S.version)).map(([n, b]) => ({ name: n, id: b.id, maker: "", mcu: "" }));
+      S.version = d.version;
+      all = Object.entries(d.boards).map(([n, b]) => ({ name: n, id: b.id, maker: "", mcu: "" }));
     } else {
+      const r = await loadBFReleases();
+      S.version = r[0].release;
       const t = await loadBFTargets();
       all = t.map(x => ({ name: x.target, maker: x.manufacturer || "", mcu: x.mcu || "" }));
       mcus = [...new Set(all.map(x => x.mcu).filter(Boolean))].sort();
     }
-  } catch (e) { p.innerHTML = `<h2>3. Choose your board</h2><p class="bad">Could not load the list: ${esc(e.message)}</p>`; return; }
+  } catch (e) { p.innerHTML = `<h2>2. Choose your board</h2><p class="bad">Could not load the list: ${esc(e.message)}</p>`; return; }
   const isBF = S.fw === "Betaflight";
-  p.innerHTML = `<h2>3. Choose your board</h2>
-  <p class="help">${all.length} boards for ${esc(S.fw)} ${esc(S.version)}. Not sure of the name? Drop a file from your current setup and the page reads the board from it.</p>
+  p.innerHTML = `<h2>2. Choose your board</h2>
+  <p class="help">${all.length} boards for ${esc(S.fw)}${S.fw === "ArduPilot" ? " Copter" : ""} ${esc(S.version)}, the newest stable release. Not sure of the name? Drop a file from your current setup and the page reads the board from it.</p>
   <div class="tools">
     <input type="search" id="q" placeholder="Search board or maker" value="${esc(S.q || "")}" aria-label="Search boards">
     ${isBF ? `<select id="mcu" aria-label="Filter by chip"><option value="">All chips</option>${mcus.map(m => `<option ${S.mcu === m ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>` : ""}
@@ -249,7 +233,7 @@ async function panelBoard(p){
 
 async function panelOptions(p){
   if (S.fw === "ArduPilot") {
-    p.innerHTML = `<h2>4. Options</h2><p class="help">ArduPilot Copter ${esc(S.version)} for ${esc(S.board)}.</p>
+    p.innerHTML = `<h2>3. Options</h2><p class="help">ArduPilot Copter ${esc(S.version)} for ${esc(S.board)}.</p>
     <label class="chk"><input type="checkbox" id="mgrs" ${S.mgrs ? "checked" : ""}><span>MGRS on OSD<small>The GPS latitude element shows the MGRS grid reference.</small></span></label>
     <label class="chk"><input type="checkbox" id="vtx" ${S.vtx ? "checked" : ""}><span>Adjustable VTX power script<small>Includes <code>vtx_power.lua</code> (the <code>VTXA_</code> parameters, Tramp or SmartAudio).</small></span></label>
     <div class="note">Both off builds plain stock Copter for that board.</div>`;
@@ -257,13 +241,13 @@ async function panelOptions(p){
     $("#vtx").onchange = e => S.vtx = e.target.checked;
     return;
   }
-  p.innerHTML = `<h2>4. Options</h2><p>Loading the official option list...</p>`;
+  p.innerHTML = `<h2>3. Options</h2><p>Loading the official option list...</p>`;
   let o;
-  try { o = await loadBFOptions(S.version); } catch (e) { p.innerHTML = `<h2>4. Options</h2><p class="bad">Could not load options: ${esc(e.message)}</p>`; return; }
+  try { o = await loadBFOptions(S.version); } catch (e) { p.innerHTML = `<h2>3. Options</h2><p class="bad">Could not load options: ${esc(e.message)}</p>`; return; }
   if (!S.bfInit || S.bfInit !== S.version) { initBF(o); S.bfInit = S.version; }
   const sel = (id, label, items, cur) => `<label class="field"><span>${label}</span><select id="${id}">${items.map(i => `<option value="${esc(i.v)}" ${i.v === cur ? "selected" : ""}>${esc(i.n)}</option>`).join("")}</select></label>`;
   const tele = [{ v: "auto", n: "Automatic (CRSF only)" }, ...o.telemetryProtocols.map(t => ({ v: t.value, n: t.name }))];
-  p.innerHTML = `<h2>4. Options</h2><p class="help">Betaflight ${esc(S.version)} for ${esc(S.board)}. Defaults match your saved cloud build.</p>
+  p.innerHTML = `<h2>3. Options</h2><p class="help">Betaflight ${esc(S.version)} for ${esc(S.board)}. Defaults match your saved cloud build.</p>
   <label class="chk"><input type="checkbox" id="mgrs" ${S.mgrs ? "checked" : ""}><span>MGRS on OSD<small>The latitude element shows the MGRS grid reference.</small></span></label>
   <div class="grid">
     ${sel("radio", "Radio protocol", o.radioProtocols.map(r => ({ v: r.value, n: r.name })), S.bfRadio)}
@@ -287,7 +271,7 @@ function settingsText(){
   if (S.fw === "ArduPilot") {
     const a = ["# Load now: Mission Planner, Config, Full Parameter List, Load from file, then Write Params",
       "OSD_CELL_COUNT," + cells,
-      "OSD1_AVGCELLV_EN,1", "OSD1_AVGCELLV_X," + S.avgX, "OSD1_AVGCELLV_Y," + S.avgY];
+      "OSD1_AVGCELLV_EN,1", "OSD1_AVGCELLV_X," + S.avgX, "OSD1_AVGCELLV_Y," + S.avgY, "OSD1_CELLVOLT_EN,0"];
     if (S.mgrs) a.push("OSD1_GPSLAT_EN,1", "OSD1_GPSLONG_EN,0", "OSD1_PLUSCODE_EN,0");
     if (S.vtx) a.push("SCR_ENABLE,1", "VTX_ENABLE,0", "SERIAL" + S.uart + "_PROTOCOL,28");
     let b = "";
@@ -302,10 +286,10 @@ function panelBattery(p){
   const ap = S.fw === "ArduPilot";
   const opts = [`<option value="0" ${S.cells === "0" ? "selected" : ""}>Auto-detect</option>`]
     .concat(Array.from({ length: 14 }, (_, i) => `<option value="${i + 1}" ${S.cells === String(i + 1) ? "selected" : ""}>${i + 1}S</option>`)).join("");
-  p.innerHTML = `<h2>5. Battery and OSD settings</h2>
+  p.innerHTML = `<h2>4. Battery and OSD settings</h2>
   <p class="help">This does not change the build. It makes a settings file for after you flash.</p>
-  <div class="note"><strong>Average cell voltage, not each cell.</strong> The flight controller only measures the whole pack. It divides by the cell count, so you get one average number. Separate cell readings need a balance-lead monitor, which these boards do not have.</div>
-  <label class="field"><span>Cell count</span><select id="cells">${opts}</select></label>
+  <div class="note"><strong>The OSD shows one number: the average cell voltage.</strong> The flight controller only measures the whole pack and divides it by the cell count you set here. The count itself is never drawn on screen. Separate cell readings need a balance-lead monitor, which these boards do not have.</div>
+  <label class="field"><span>Cells in your pack (a setting only, it is not drawn on the OSD)</span><select id="cells">${opts}</select></label>
   ${ap ? `<div class="grid">
     <label class="field"><span>Average cell element, X</span><input type="number" id="ax" min="0" max="49" value="${S.avgX}"></label>
     <label class="field"><span>Average cell element, Y</span><input type="number" id="ay" min="0" max="15" value="${S.avgY}"></label>
@@ -338,7 +322,7 @@ function panelBattery(p){
 /* ---------- build + GitHub ---------- */
 function inputsForRun(){
   return {
-    firmware: S.fw, version: S.version, board: S.board,
+    firmware: S.fw, version: "newest-stable", board: S.board,
     mgrs: String(S.mgrs), vtx_script: String(S.fw === "ArduPilot" && S.vtx),
     bf_options: S.fw === "Betaflight" ? bfOptionString() : "",
   };
@@ -354,9 +338,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function panelBuild(p){
   const i = inputsForRun();
-  p.innerHTML = `<h2>6. Build</h2>
+  p.innerHTML = `<h2>5. Build</h2>
   <dl class="summary">
-    <dt>Firmware</dt><dd>${esc(i.firmware)}${S.fw === "ArduPilot" ? " Copter" : ""} ${esc(i.version)}</dd>
+    <dt>Firmware</dt><dd>${esc(i.firmware)}${S.fw === "ArduPilot" ? " Copter" : ""}, newest stable (now ${esc(S.version)})</dd>
     <dt>Board</dt><dd>${esc(i.board)}</dd>
     <dt>MGRS on OSD</dt><dd>${S.mgrs ? "yes" : "no"}</dd>
     ${S.fw === "ArduPilot" ? `<dt>VTX power script</dt><dd>${S.vtx ? "yes" : "no"}</dd>` : `<dt>Options</dt><dd><code>${esc(i.bf_options)}</code></dd>`}
@@ -425,15 +409,15 @@ async function render(){
   stepper();
   const p = $("#panel"); p.onclick = null;
   $("#back").disabled = step === 0;
-  $("#next").textContent = step === 4 ? "Review and build" : "Next";
-  $("#next").style.display = step === 5 ? "none" : "";
+  $("#next").textContent = step === 3 ? "Review and build" : "Next";
+  $("#next").style.display = step === 4 ? "none" : "";
   $("#next").disabled = !canNext();
-  const fn = [panelFirmware, panelVersion, panelBoard, panelOptions, panelBattery, panelBuild][step];
+  const fn = [panelFirmware, panelBoard, panelOptions, panelBattery, panelBuild][step];
   try { await fn(p); } catch (e) { p.innerHTML = `<h2>Something went wrong</h2><p class="bad">${esc(e.message)}</p><p class="help">Go back one step and try again.</p>`; }
   $("#next").disabled = !canNext();
 }
 $("#back").onclick = () => { if (step > 0) { step--; render(); window.scrollTo(0, 0); } };
-$("#next").onclick = () => { if (canNext() && step < 5) { step++; render(); window.scrollTo(0, 0); } };
+$("#next").onclick = () => { if (canNext() && step < 4) { step++; render(); window.scrollTo(0, 0); } };
 render();
 </script>
 </body>
