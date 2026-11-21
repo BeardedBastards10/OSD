@@ -1,0 +1,8 @@
+{
+  "name": "Firmware Builder",
+  "short_name": "Firmware",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0e141b",
+  "theme_color": "#0b5cab"
+}

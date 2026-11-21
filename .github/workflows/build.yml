@@ -1,38 +1,59 @@
 name: Build firmware (Betaflight or ArduPilot)
-run-name: "${{ inputs.firmware }} (newest stable) | board ${{ inputs.board }}"
+run-name: "${{ inputs.firmware }} ${{ inputs.version }} | board ${{ inputs.board }}"
 on:
   workflow_dispatch:
     inputs:
       firmware:
-        description: "STEP 1 - FIRMWARE: ArduPilot (adjustable VTX power + MGRS on OSD) or Betaflight (MGRS on OSD, your saved cloud-build options). Always the NEWEST stable version."
+        description: "STEP 1 - FIRMWARE: ArduPilot (Copter) or Betaflight"
         type: choice
         options:
           - ArduPilot
           - Betaflight
         default: ArduPilot
+      version:
+        description: "STEP 2 - VERSION: newest-stable, or an exact stable version (ArduPilot 4.7.3, Betaflight 2026.6.2)"
+        default: newest-stable
       board:
-        description: "STEP 2 - BOARD, must match your flight controller. Wrong name = stops in seconds and lists similar names"
+        description: "STEP 3 - BOARD, must match your flight controller. Wrong name = stops in seconds and lists similar names"
         default: DAKEFPVH743
+      mgrs:
+        description: "STEP 4 - MGRS on OSD (patch the OSD so the latitude element shows MGRS)"
+        type: boolean
+        default: true
+      vtx_script:
+        description: "STEP 4 - ArduPilot only: include the adjustable VTX power script (vtx_power.lua)"
+        type: boolean
+        default: true
+      bf_options:
+        description: "STEP 4 - Betaflight only: build options (USE_ names, space separated). Empty = the saved baseline"
+        default: ""
 
 jobs:
   ardupilot:
-    name: "ArduPilot (newest stable): adjustable VTX power + MGRS on OSD"
+    name: "ArduPilot Copter ${{ inputs.version }}"
     if: ${{ inputs.firmware == 'ArduPilot' }}
     runs-on: ubuntu-22.04
     container: ardupilot/ardupilot-dev-chibios:latest
     env:
       BOARD: ${{ inputs.board }}
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find the newest stable ArduPilot version
+      - name: Work out the ArduPilot version
         id: ver
         run: |
           git config --global --add safe.directory '*'
           echo "$BOARD" | grep -qE '^[A-Za-z0-9_-]+$' || { echo "ERROR: board name is empty or has odd characters: '$BOARD'"; exit 1; }
-          V=$(git ls-remote --tags --refs https://github.com/ArduPilot/ardupilot 'refs/tags/Copter-*' | sed 's#.*refs/tags/##' | grep -E '^Copter-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-          [ -n "$V" ] || { echo "ERROR: could not work out the newest version"; exit 1; }
-          echo "Newest stable ArduPilot: $V"
+          if [ "$VERSION" = "newest-stable" ]; then
+            V=$(git ls-remote --tags --refs https://github.com/ArduPilot/ardupilot 'refs/tags/Copter-*' | sed 's#.*refs/tags/##' | grep -E '^Copter-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          else
+            echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "ERROR: version must look like 4.7.3 or newest-stable, got '$VERSION'"; exit 1; }
+            V="Copter-$VERSION"
+            git ls-remote --exit-code --tags --refs https://github.com/ArduPilot/ardupilot "refs/tags/$V" >/dev/null || { echo "ERROR: tag $V does not exist"; exit 1; }
+          fi
+          [ -n "$V" ] || { echo "ERROR: could not work out the version"; exit 1; }
+          echo "Using ArduPilot: $V"
           echo "TAG=$V" >> "$GITHUB_ENV"
           echo "tag=$V" >> "$GITHUB_OUTPUT"
 
@@ -49,12 +70,14 @@ jobs:
           echo "Board $BOARD found"
 
       - name: Add the adjustable VTX power script
+        if: ${{ inputs.vtx_script }}
         run: |
           mkdir -p ardupilot/ROMFS_custom/scripts
           cp vtx_power.lua ardupilot/ROMFS_custom/scripts/
           ls -l ardupilot/ROMFS_custom/scripts
 
       - name: Check MGRS converter against a reference library
+        if: ${{ inputs.mgrs }}
         continue-on-error: true
         run: |
           pip3 install mgrs
@@ -62,6 +85,7 @@ jobs:
           python3 mgrs_osd/compare.py
 
       - name: Patch OSD so MGRS replaces latitude/longitude
+        if: ${{ inputs.mgrs }}
         run: python3 mgrs_osd/apply_ardupilot.py ardupilot
 
       - name: Build
@@ -72,34 +96,40 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ardupilot-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-vtx-power-and-mgrs
+          name: ardupilot-${{ steps.ver.outputs.tag }}-${{ inputs.board }}${{ inputs.vtx_script && '-vtx-power' || '' }}${{ inputs.mgrs && '-mgrs' || '' }}
           path: |
             ardupilot/build/${{ inputs.board }}/bin/arducopter.apj
             ardupilot/build/${{ inputs.board }}/bin/arducopter_with_bl.hex
 
   betaflight:
-    name: "Betaflight (newest stable, your saved options): MGRS on OSD"
+    name: "Betaflight ${{ inputs.version }}"
     if: ${{ inputs.firmware == 'Betaflight' }}
     runs-on: ubuntu-22.04
     env:
       BOARD: ${{ inputs.board }}
-      # Your Betaflight cloud-build settings, always used. Core Only off, radio CRSF,
-      # telemetry automatic, OSD analog, motors DSHOT, plus the "other options" you ticked.
+      VERSION: ${{ inputs.version }}
+      # Used when the bf_options input is empty: CRSF radio, automatic telemetry,
+      # analog OSD, DSHOT, plus the "other options" ticked in the saved cloud build.
       BF_OPTIONS: >-
-        USE_SERIALRX_CRSF USE_TELEMETRY USE_TELEMETRY_CRSF USE_OSD_SD USE_DSHOT
-        USE_ALTITUDE_HOLD USE_CAMERA_CONTROL USE_FLIGHT_PLAN USE_GPS USE_OPTICALFLOW
-        USE_MAG USE_PINIO USE_POSITION_HOLD USE_RANGEFINDER USE_SERVOS USE_VTX
+        ${{ inputs.bf_options != '' && inputs.bf_options || 'USE_SERIALRX_CRSF USE_TELEMETRY USE_TELEMETRY_CRSF USE_OSD_SD USE_DSHOT USE_ALTITUDE_HOLD USE_CAMERA_CONTROL USE_FLIGHT_PLAN USE_GPS USE_OPTICALFLOW USE_MAG USE_PINIO USE_POSITION_HOLD USE_RANGEFINDER USE_SERVOS USE_VTX' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find the newest stable Betaflight version
+      - name: Work out the Betaflight version
         id: ver
         run: |
           echo "$BOARD" | grep -qE '^[A-Za-z0-9_-]+$' || { echo "ERROR: board name is empty or has odd characters: '$BOARD'"; exit 1; }
-          V=$(git ls-remote --tags --refs https://github.com/betaflight/betaflight | sed 's#.*refs/tags/##' | grep -E '^[0-9]{4}\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-          [ -n "$V" ] || { echo "ERROR: could not work out the newest version"; exit 1; }
-          echo "Newest stable Betaflight: $V"
-          echo "Build options (your saved baseline): $BF_OPTIONS"
+          echo "$BF_OPTIONS" | grep -qE '^[A-Z0-9_ ]+$' || { echo "ERROR: build options may only hold USE_ names and spaces: '$BF_OPTIONS'"; exit 1; }
+          if [ "$VERSION" = "newest-stable" ]; then
+            V=$(git ls-remote --tags --refs https://github.com/betaflight/betaflight | sed 's#.*refs/tags/##' | grep -E '^[0-9]{4}\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          else
+            echo "$VERSION" | grep -qE '^[0-9]{4}\.[0-9]+\.[0-9]+$' || { echo "ERROR: version must look like 2026.6.2 or newest-stable, got '$VERSION'"; exit 1; }
+            V="$VERSION"
+            git ls-remote --exit-code --tags --refs https://github.com/betaflight/betaflight "refs/tags/$V" >/dev/null || { echo "ERROR: tag $V does not exist"; exit 1; }
+          fi
+          [ -n "$V" ] || { echo "ERROR: could not work out the version"; exit 1; }
+          echo "Using Betaflight: $V"
+          echo "Build options: $BF_OPTIONS"
           echo "TAG=$V" >> "$GITHUB_ENV"
           echo "tag=$V" >> "$GITHUB_OUTPUT"
 
@@ -118,6 +148,7 @@ jobs:
           echo "Board $BOARD found"
 
       - name: Check MGRS converter against a reference library
+        if: ${{ inputs.mgrs }}
         continue-on-error: true
         run: |
           pip3 install mgrs
@@ -125,6 +156,7 @@ jobs:
           python3 mgrs_osd/compare.py
 
       - name: Patch OSD so MGRS replaces latitude/longitude
+        if: ${{ inputs.mgrs }}
         run: python3 mgrs_osd/apply_betaflight.py bf
 
       - name: Install ARM toolchain
@@ -139,5 +171,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: betaflight-${{ steps.ver.outputs.tag }}-${{ inputs.board }}-mgrs
+          name: betaflight-${{ steps.ver.outputs.tag }}-${{ inputs.board }}${{ inputs.mgrs && '-mgrs' || '' }}
           path: bf/obj/*.hex

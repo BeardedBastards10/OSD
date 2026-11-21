@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firmware Builder</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b5cab">
+<style>
+:root{
+  --bg:#f5f7fa; --surface:#ffffff; --ink:#1b2430; --muted:#566274; --line:#d5dbe4;
+  --accent:#0b5cab; --accent-ink:#ffffff; --chip:#e8f0fa; --ok:#0f7b45; --warn:#8a5300; --bad:#b42318;
+  --code:#eef1f5;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e141b; --surface:#151d27; --ink:#e7ecf2; --muted:#9aa7b7; --line:#2a3645;
+    --accent:#5aa3ee; --accent-ink:#08121d; --chip:#1a2a3d; --ok:#4cc38a; --warn:#e0a24a; --bad:#ff7b72;
+    --code:#1c2631;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e141b; --surface:#151d27; --ink:#e7ecf2; --muted:#9aa7b7; --line:#2a3645;
+  --accent:#5aa3ee; --accent-ink:#08121d; --chip:#1a2a3d; --ok:#4cc38a; --warn:#e0a24a; --bad:#ff7b72;
+  --code:#1c2631;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 56px}
+h1{font-size:1.45rem;margin:0 0 2px}
+h2{font-size:1.2rem;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 16px}
+.steps{display:flex;gap:6px;margin:0 0 16px;padding:0;list-style:none;overflow-x:auto}
+.steps li{flex:1 0 auto;min-width:0;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--muted);font-size:.8rem;white-space:nowrap;text-align:center}
+.steps li.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.steps li.done{color:var(--ink);border-color:var(--accent)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 16px}
+.help{color:var(--muted);font-size:.9rem;margin:0 0 12px}
+.cards{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+@media (max-width:560px){.cards{grid-template-columns:1fr}}
+button,input,select,textarea{font:inherit;color:inherit}
+.card{display:block;text-align:left;width:100%;padding:16px;border:2px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer}
+.card strong{display:block;font-size:1.1rem}
+.card span{color:var(--muted);font-size:.9rem}
+.card[aria-pressed="true"]{border-color:var(--accent);background:var(--chip)}
+.list{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.row{display:flex;gap:10px;align-items:center;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:pointer;text-align:left}
+.row[aria-pressed="true"]{border-color:var(--accent);background:var(--chip)}
+.row .grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.badge{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--chip);color:var(--accent);white-space:nowrap}
+.badge.warn{color:var(--warn);background:transparent;border:1px solid var(--warn)}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+input[type=text],input[type=search],input[type=password],input[type=number],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.tools input,.tools select{flex:1 1 180px;width:auto}
+label.chk{display:flex;gap:10px;align-items:flex-start;padding:8px 0;cursor:pointer}
+label.chk input{margin-top:4px;width:18px;height:18px;flex:none}
+label.chk small{display:block;color:var(--muted)}
+.grid{display:grid;gap:4px 16px;grid-template-columns:1fr 1fr}
+@media (max-width:560px){.grid{grid-template-columns:1fr}}
+.field{margin:0 0 12px}
+.field>span{display:block;font-weight:600;margin-bottom:4px}
+.nav{display:flex;justify-content:space-between;gap:10px;margin-top:16px}
+.btn{padding:11px 18px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+pre,code{font-family:ui-monospace,Consolas,"Courier New",monospace}
+pre{background:var(--code);border-radius:10px;padding:12px;overflow-x:auto;font-size:.82rem;margin:6px 0 8px;white-space:pre-wrap;word-break:break-word}
+code{background:var(--code);padding:1px 5px;border-radius:5px;font-size:.88em}
+.note{border-left:4px solid var(--accent);background:var(--chip);padding:10px 12px;border-radius:6px;margin:12px 0;font-size:.92rem}
+.note.warn{border-color:var(--warn)}
+.summary{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0 0 14px}
+.summary dt{color:var(--muted)} .summary dd{margin:0;overflow-wrap:anywhere}
+.status{padding:12px;border:1px solid var(--line);border-radius:10px;margin-top:14px}
+.status.ok{border-color:var(--ok)} .status.bad{border-color:var(--bad)}
+.ok{color:var(--ok)} .bad{color:var(--bad)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+a{color:var(--accent)}
+.foot{color:var(--muted);font-size:.8rem;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Firmware Builder</h1>
+  <p class="sub">Pick your firmware, version and board from the official lists. Your custom build (MGRS on OSD, adjustable VTX power) is compiled on GitHub.</p>
+  <ol class="steps" id="steps" aria-label="Progress"></ol>
+  <section class="panel" id="panel" aria-live="polite"></section>
+  <div class="nav">
+    <button class="btn ghost" id="back" type="button">Back</button>
+    <button class="btn" id="next" type="button">Next</button>
+  </div>
+  <p class="foot">Lists: Betaflight from build.betaflight.com (live), ArduPilot from firmware.ardupilot.org (<span id="apdate">cached copy</span>). Nothing is sent anywhere except GitHub and those two lists.</p>
+</div>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k){ try { return localStorage.getItem(k) } catch { return null } },
+  set(k,v){ try { localStorage.setItem(k,v) } catch {} },
+  del(k){ try { localStorage.removeItem(k) } catch {} }
+};
+
+const BF_API = "https://build.betaflight.com/api";
+const BF_BASELINE = "USE_SERIALRX_CRSF USE_TELEMETRY USE_TELEMETRY_CRSF USE_OSD_SD USE_DSHOT USE_ALTITUDE_HOLD USE_CAMERA_CONTROL USE_FLIGHT_PLAN USE_GPS USE_OPTICALFLOW USE_MAG USE_PINIO USE_POSITION_HOLD USE_RANGEFINDER USE_SERVOS USE_VTX".split(" ");
+const STEPS = ["Firmware","Version","Board","Options","Battery & OSD","Build"];
+
+const S = {
+  fw: null, version: null, board: null,
+  mgrs: true, vtx: true,
+  bfRadio: "USE_SERIALRX_CRSF", bfTele: "auto", bfMotor: "USE_DSHOT", bfGeneral: new Set(),
+  cells: "0", avgX: 24, avgY: 3, uart: 4, pwrCh: 10,
+  repo: store.get("fb_repo") || "ericma1991-dot/mgrs-on-osd", token: store.get("fb_token") || "", remember: !!store.get("fb_token"),
+};
+let step = 0;
+const cache = {};
+
+/* ---------- data ---------- */
+async function getJSON(url){
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(url + " returned " + r.status);
+  return r.json();
+}
+const loadAP = () => cache.ap || (cache.ap = getJSON("boards-ardupilot.json").then(d => { $("#apdate").textContent = "list refreshed " + d.generated; return d; }));
+const loadBFReleases = () => cache.bfr || (cache.bfr = getJSON(BF_API + "/releases").then(l =>
+  l.filter(r => r.type === "Stable" && r.cloudBuild && !r.withdrawn && /^20(2[5-9]|[3-9]\d)\./.test(r.release))));
+const loadBFTargets = () => cache.bft || (cache.bft = getJSON(BF_API + "/targets"));
+const bfOpts = {};   // resolved option lists by release
+const loadBFOptions = async v => bfOpts[v] || (bfOpts[v] = await getJSON(BF_API + "/options/" + encodeURIComponent(v)));
+
+/* ---------- helpers ---------- */
+function bfOptionString(){
+  const o = bfOpts[S.version];
+  const out = [S.bfRadio];
+  if (S.bfTele === "auto") { if (S.bfRadio === "USE_SERIALRX_CRSF") out.push("USE_TELEMETRY", "USE_TELEMETRY_CRSF"); }
+  else if (S.bfTele) out.push("USE_TELEMETRY", S.bfTele);
+  out.push(S.bfMotor);
+  const valid = o ? new Set(o.generalOptions.map(g => g.value)) : null;
+  [...S.bfGeneral].forEach(v => { if (!valid || valid.has(v)) out.push(v); });
+  return [...new Set(out)].join(" ");
+}
+function initBF(o){
+  const base = new Set(BF_BASELINE);
+  S.bfGeneral = new Set(o.generalOptions.map(g => g.value).filter(v => base.has(v)));
+  S.bfRadio = "USE_SERIALRX_CRSF"; S.bfTele = "auto"; S.bfMotor = "USE_DSHOT";
+}
+function canNext(){
+  if (step === 0) return !!S.fw;
+  if (step === 1) return !!S.version;
+  if (step === 2) return !!S.board;
+  return true;
+}
+
+/* ---------- steps ---------- */
+function stepper(){
+  $("#steps").innerHTML = STEPS.map((n, i) =>
+    `<li class="${i === step ? "on" : i < step ? "done" : ""}">${i + 1}. ${esc(n)}</li>`).join("");
+}
+
+function panelFirmware(p){
+  p.innerHTML = `<h2>1. Choose firmware</h2><p class="help">Same choice as on the official sites.</p>
+  <div class="cards">
+    <button class="card" data-fw="ArduPilot" aria-pressed="${S.fw === "ArduPilot"}"><strong>ArduPilot</strong><span>Copter. Adds the adjustable VTX power script and MGRS on the OSD.</span></button>
+    <button class="card" data-fw="Betaflight" aria-pressed="${S.fw === "Betaflight"}"><strong>Betaflight</strong><span>Adds MGRS on the OSD. Radio, telemetry, motor and extra options like the cloud build.</span></button>
+  </div>`;
+  p.onclick = e => {
+    const b = e.target.closest("[data-fw]"); if (!b) return;
+    if (S.fw !== b.dataset.fw) { S.fw = b.dataset.fw; S.version = null; S.board = null; }
+    render();
+  };
+}
+
+async function panelVersion(p){
+  p.innerHTML = `<h2>2. Choose version</h2><p>Loading the official list...</p>`;
+  let items;
+  try {
+    if (S.fw === "ArduPilot") {
+      const d = await loadAP();
+      items = d.versions.map((v, i) => ({ id: v, label: "Copter " + v, sub: "", newest: i === 0 }));
+    } else {
+      const r = await loadBFReleases();
+      items = r.map((x, i) => ({ id: x.release, label: "Betaflight " + x.release, sub: x.label || x.date || "", newest: i === 0 }));
+    }
+  } catch (e) { p.innerHTML = `<h2>2. Choose version</h2><p class="bad">Could not load the list: ${esc(e.message)}</p>`; return; }
+  if (!S.version) S.version = items[0].id;
+  p.innerHTML = `<h2>2. Choose version</h2><p class="help">Stable releases only. The newest one is what the MGRS patches were tested on. An older one may stop at the patch step, which only wastes a couple of minutes.</p>
+  <div class="list">${items.map(it => `<button class="row" data-v="${esc(it.id)}" aria-pressed="${S.version === it.id}"><span class="grow">${esc(it.label)} <small>${esc(it.sub)}</small></span>${it.newest ? '<span class="badge">newest, tested</span>' : '<span class="badge warn">not tested</span>'}</button>`).join("")}</div>`;
+  p.onclick = e => { const b = e.target.closest("[data-v]"); if (!b) return; S.version = b.dataset.v; S.board = null; render(); };
+}
+
+async function panelBoard(p){
+  p.innerHTML = `<h2>3. Choose your board</h2><p>Loading the official list...</p>`;
+  let all, mcus = [];
+  try {
+    if (S.fw === "ArduPilot") {
+      const d = await loadAP();
+      all = Object.entries(d.boards).filter(([, b]) => b.v.includes(S.version)).map(([n, b]) => ({ name: n, id: b.id, maker: "", mcu: "" }));
+    } else {
+      const t = await loadBFTargets();
+      all = t.map(x => ({ name: x.target, maker: x.manufacturer || "", mcu: x.mcu || "" }));
+      mcus = [...new Set(all.map(x => x.mcu).filter(Boolean))].sort();
+    }
+  } catch (e) { p.innerHTML = `<h2>3. Choose your board</h2><p class="bad">Could not load the list: ${esc(e.message)}</p>`; return; }
+  const isBF = S.fw === "Betaflight";
+  p.innerHTML = `<h2>3. Choose your board</h2>
+  <p class="help">${all.length} boards for ${esc(S.fw)} ${esc(S.version)}. Not sure of the name? Drop a file from your current setup and the page reads the board from it.</p>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Search board or maker" value="${esc(S.q || "")}" aria-label="Search boards">
+    ${isBF ? `<select id="mcu" aria-label="Filter by chip"><option value="">All chips</option>${mcus.map(m => `<option ${S.mcu === m ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>` : ""}
+  </div>
+  <label class="field"><span>Detect from a file (${isBF ? "a Betaflight <code>diff all</code> text file" : "an official ArduPilot <code>.apj</code> file"})</span><input type="file" id="detect" accept="${isBF ? ".txt,.cli,text/plain" : ".apj,application/json"}"></label>
+  <p id="detmsg" class="help"></p>
+  <div class="list" id="boards"></div>`;
+  const draw = () => {
+    const q = ($("#q").value || "").toLowerCase().trim(); S.q = $("#q").value;
+    S.mcu = isBF ? $("#mcu").value : "";
+    let m = all.filter(b => (!q || (b.name + " " + b.maker).toLowerCase().includes(q)) && (!S.mcu || b.mcu === S.mcu));
+    if (S.board && !m.some(b => b.name === S.board)) { const sel = all.find(b => b.name === S.board); if (sel) m.unshift(sel); }
+    const shown = m.slice(0, 60);
+    $("#boards").innerHTML = shown.map(b => `<button class="row" data-b="${esc(b.name)}" aria-pressed="${S.board === b.name}"><span class="grow">${esc(b.name)}</span>${b.maker ? `<span class="badge">${esc(b.maker)}</span>` : ""}${b.mcu ? `<span class="badge">${esc(b.mcu)}</span>` : ""}</button>`).join("")
+      + (m.length > shown.length ? `<p class="help">${m.length - shown.length} more. Type to narrow the list.</p>` : "") + (!m.length ? `<p class="help">No match.</p>` : "");
+    $("#next").disabled = !canNext();
+  };
+  $("#q").oninput = draw; if (isBF) $("#mcu").onchange = draw;
+  $("#boards").onclick = e => { const b = e.target.closest("[data-b]"); if (!b) return; S.board = b.dataset.b; draw(); };
+  $("#detect").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; const msg = $("#detmsg");
+    try {
+      let name = null;
+      if (isBF) {
+        const t = await f.text();
+        const m = t.match(/board_name[ :]+([A-Za-z0-9_-]+)/i);
+        name = m && m[1];
+      } else {
+        const j = JSON.parse(await f.text());
+        const hit = all.find(b => b.id === j.board_id);
+        name = hit ? hit.name : null;
+        if (!hit) msg.textContent = j.board_id ? "Board ID " + j.board_id + " is not in the " + S.version + " list." : "No board_id in that file.";
+      }
+      const hit = name && all.find(b => b.name.toLowerCase() === name.toLowerCase());
+      if (hit) { S.board = hit.name; S.q = hit.name; $("#q").value = hit.name; msg.innerHTML = `<span class="ok">Found ${esc(hit.name)}.</span>`; draw(); }
+      else if (name) msg.textContent = name + " is not in this version's list. Pick another version or search by hand.";
+      else if (!msg.textContent) msg.textContent = "Could not find a board name in that file.";
+    } catch (err) { msg.textContent = "Could not read that file."; }
+  };
+  draw();
+}
+
+async function panelOptions(p){
+  if (S.fw === "ArduPilot") {
+    p.innerHTML = `<h2>4. Options</h2><p class="help">ArduPilot Copter ${esc(S.version)} for ${esc(S.board)}.</p>
+    <label class="chk"><input type="checkbox" id="mgrs" ${S.mgrs ? "checked" : ""}><span>MGRS on OSD<small>The GPS latitude element shows the MGRS grid reference.</small></span></label>
+    <label class="chk"><input type="checkbox" id="vtx" ${S.vtx ? "checked" : ""}><span>Adjustable VTX power script<small>Includes <code>vtx_power.lua</code> (the <code>VTXA_</code> parameters, Tramp or SmartAudio).</small></span></label>
+    <div class="note">Both off builds plain stock Copter for that board.</div>`;
+    $("#mgrs").onchange = e => S.mgrs = e.target.checked;
+    $("#vtx").onchange = e => S.vtx = e.target.checked;
+    return;
+  }
+  p.innerHTML = `<h2>4. Options</h2><p>Loading the official option list...</p>`;
+  let o;
+  try { o = await loadBFOptions(S.version); } catch (e) { p.innerHTML = `<h2>4. Options</h2><p class="bad">Could not load options: ${esc(e.message)}</p>`; return; }
+  if (!S.bfInit || S.bfInit !== S.version) { initBF(o); S.bfInit = S.version; }
+  const sel = (id, label, items, cur) => `<label class="field"><span>${label}</span><select id="${id}">${items.map(i => `<option value="${esc(i.v)}" ${i.v === cur ? "selected" : ""}>${esc(i.n)}</option>`).join("")}</select></label>`;
+  const tele = [{ v: "auto", n: "Automatic (CRSF only)" }, ...o.telemetryProtocols.map(t => ({ v: t.value, n: t.name }))];
+  p.innerHTML = `<h2>4. Options</h2><p class="help">Betaflight ${esc(S.version)} for ${esc(S.board)}. Defaults match your saved cloud build.</p>
+  <label class="chk"><input type="checkbox" id="mgrs" ${S.mgrs ? "checked" : ""}><span>MGRS on OSD<small>The latitude element shows the MGRS grid reference.</small></span></label>
+  <div class="grid">
+    ${sel("radio", "Radio protocol", o.radioProtocols.map(r => ({ v: r.value, n: r.name })), S.bfRadio)}
+    ${sel("tele", "Telemetry", tele, S.bfTele)}
+    ${sel("motor", "Motor protocol", o.motorProtocols.map(m => ({ v: m.value, n: m.name })), S.bfMotor)}
+  </div>
+  <div class="field"><span>Other options</span><div class="grid">${o.generalOptions.map(g => `<label class="chk"><input type="checkbox" data-g="${esc(g.value)}" ${S.bfGeneral.has(g.value) ? "checked" : ""}><span>${esc(g.name)}</span></label>`).join("")}</div></div>
+  <div class="field"><span>Build options sent to GitHub</span><pre id="optstr"></pre><button class="btn ghost" id="reset" type="button">Reset to my saved baseline</button></div>`;
+  const upd = () => { $("#optstr").textContent = bfOptionString(); };
+  $("#mgrs").onchange = e => S.mgrs = e.target.checked;
+  $("#radio").onchange = e => { S.bfRadio = e.target.value; upd(); };
+  $("#tele").onchange = e => { S.bfTele = e.target.value; upd(); };
+  $("#motor").onchange = e => { S.bfMotor = e.target.value; upd(); };
+  p.querySelectorAll("[data-g]").forEach(c => c.onchange = () => { c.checked ? S.bfGeneral.add(c.dataset.g) : S.bfGeneral.delete(c.dataset.g); upd(); });
+  $("#reset").onclick = () => { initBF(o); render(); };
+  upd();
+}
+
+function settingsText(){
+  const cells = +S.cells;
+  if (S.fw === "ArduPilot") {
+    const a = ["# Load now: Mission Planner, Config, Full Parameter List, Load from file, then Write Params",
+      "OSD_CELL_COUNT," + cells,
+      "OSD1_AVGCELLV_EN,1", "OSD1_AVGCELLV_X," + S.avgX, "OSD1_AVGCELLV_Y," + S.avgY];
+    if (S.mgrs) a.push("OSD1_GPSLAT_EN,1", "OSD1_GPSLONG_EN,0", "OSD1_PLUSCODE_EN,0");
+    if (S.vtx) a.push("SCR_ENABLE,1", "VTX_ENABLE,0", "SERIAL" + S.uart + "_PROTOCOL,28");
+    let b = "";
+    if (S.vtx) b = ["# Load after the first boot with this firmware (these appear once the script has run)", "VTXA_PWR_CH," + S.pwrCh].join("\n");
+    return [a.join("\n"), b];
+  }
+  const a = ["# Betaflight CLI. Paste, then type save",
+    "set force_battery_cell_count = " + cells];
+  return [a.join("\n"), ""];
+}
+function panelBattery(p){
+  const ap = S.fw === "ArduPilot";
+  const opts = [`<option value="0" ${S.cells === "0" ? "selected" : ""}>Auto-detect</option>`]
+    .concat(Array.from({ length: 14 }, (_, i) => `<option value="${i + 1}" ${S.cells === String(i + 1) ? "selected" : ""}>${i + 1}S</option>`)).join("");
+  p.innerHTML = `<h2>5. Battery and OSD settings</h2>
+  <p class="help">This does not change the build. It makes a settings file for after you flash.</p>
+  <div class="note"><strong>Average cell voltage, not each cell.</strong> The flight controller only measures the whole pack. It divides by the cell count, so you get one average number. Separate cell readings need a balance-lead monitor, which these boards do not have.</div>
+  <label class="field"><span>Cell count</span><select id="cells">${opts}</select></label>
+  ${ap ? `<div class="grid">
+    <label class="field"><span>Average cell element, X</span><input type="number" id="ax" min="0" max="49" value="${S.avgX}"></label>
+    <label class="field"><span>Average cell element, Y</span><input type="number" id="ay" min="0" max="15" value="${S.avgY}"></label>
+    ${S.vtx ? `<label class="field"><span>VTX serial port (UART number)</span><input type="number" id="uart" min="1" max="8" value="${S.uart}"></label>
+    <label class="field"><span>VTX power switch channel</span><input type="number" id="pch" min="1" max="16" value="${S.pwrCh}"></label>` : ""}
+  </div>` : `<p class="help">In Configurator's OSD tab, also turn on the average cell voltage element and place it. Position cannot be set from the CLI here without the encoded number.</p>`}
+  <div id="out"></div>`;
+  const out = () => {
+    const [a, b] = settingsText();
+    $("#out").innerHTML = `<div class="field"><span>${ap ? "Settings file, part 1" : "CLI commands"}</span><pre>${esc(a)}</pre><div class="actions"><button class="btn ghost" data-dl="0" type="button">Download</button><button class="btn ghost" data-cp="0" type="button">Copy</button></div></div>`
+      + (b ? `<div class="field"><span>Settings file, part 2 (after first boot)</span><pre>${esc(b)}</pre><div class="actions"><button class="btn ghost" data-dl="1" type="button">Download</button><button class="btn ghost" data-cp="1" type="button">Copy</button></div></div>` : "")
+      + (ap && +S.cells === 0 ? `<div class="note warn"><code>OSD_CELL_COUNT</code> 0 guesses the cell count from the voltage, so a half-empty pack can read wrong. Pick your real count if you always use the same pack.</div>` : "");
+  };
+  $("#cells").onchange = e => { S.cells = e.target.value; out(); };
+  if (ap) {
+    $("#ax").oninput = e => { S.avgX = +e.target.value; out(); };
+    $("#ay").oninput = e => { S.avgY = +e.target.value; out(); };
+    if (S.vtx) { $("#uart").oninput = e => { S.uart = +e.target.value || 4; out(); }; $("#pch").oninput = e => { S.pwrCh = +e.target.value || 10; out(); }; }
+  }
+  p.onclick = e => {
+    const d = e.target.closest("[data-dl]"), c = e.target.closest("[data-cp]");
+    if (d) { const t = settingsText()[+d.dataset.dl] + "\n"; const ext = ap ? ".param" : ".txt";
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([t], { type: "text/plain" }));
+      a.download = (ap ? (d.dataset.dl === "0" ? "settings-part1" : "settings-part2") : "battery-cli") + ext; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+    if (c) { const t = settingsText()[+c.dataset.cp]; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => c.textContent = "Copied", () => c.textContent = "Copy failed"); }
+  };
+  out();
+}
+
+/* ---------- build + GitHub ---------- */
+function inputsForRun(){
+  return {
+    firmware: S.fw, version: S.version, board: S.board,
+    mgrs: String(S.mgrs), vtx_script: String(S.fw === "ArduPilot" && S.vtx),
+    bf_options: S.fw === "Betaflight" ? bfOptionString() : "",
+  };
+}
+async function gh(path, opt = {}){
+  const r = await fetch("https://api.github.com" + path, { ...opt, headers: {
+    Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+    Authorization: "Bearer " + S.token, ...(opt.headers || {}) } });
+  if (!r.ok && r.status !== 204) { let m = ""; try { m = (await r.json()).message } catch {} throw new Error(r.status + " " + (m || r.statusText)); }
+  return r;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function panelBuild(p){
+  const i = inputsForRun();
+  p.innerHTML = `<h2>6. Build</h2>
+  <dl class="summary">
+    <dt>Firmware</dt><dd>${esc(i.firmware)}${S.fw === "ArduPilot" ? " Copter" : ""} ${esc(i.version)}</dd>
+    <dt>Board</dt><dd>${esc(i.board)}</dd>
+    <dt>MGRS on OSD</dt><dd>${S.mgrs ? "yes" : "no"}</dd>
+    ${S.fw === "ArduPilot" ? `<dt>VTX power script</dt><dd>${S.vtx ? "yes" : "no"}</dd>` : `<dt>Options</dt><dd><code>${esc(i.bf_options)}</code></dd>`}
+  </dl>
+  <label class="field"><span>GitHub repository</span><input type="text" id="repo" value="${esc(S.repo)}" autocomplete="off" spellcheck="false"></label>
+  <label class="field"><span>GitHub token</span><input type="password" id="tok" value="${esc(S.token)}" autocomplete="off" placeholder="github_pat_..."></label>
+  <label class="chk"><input type="checkbox" id="rem" ${S.remember ? "checked" : ""}><span>Remember the token on this device<small>Stored in this browser only. Untick on a shared device.</small></span></label>
+  <div class="note">Make the token at GitHub, Settings, Developer settings, Fine-grained tokens. Give it only this repository and <strong>Actions: Read and write</strong>.</div>
+  <div class="actions"><button class="btn" id="go" type="button">Build firmware</button>
+  <a class="btn ghost" id="manual" target="_blank" rel="noopener" style="text-decoration:none"></a></div>
+  <div id="status"></div>`;
+  const man = () => { $("#manual").href = "https://github.com/" + $("#repo").value.trim() + "/actions/workflows/build.yml"; $("#manual").textContent = "Run on GitHub by hand"; };
+  man(); $("#repo").oninput = man;
+  $("#go").onclick = runBuild;
+}
+
+async function runBuild(){
+  const st = $("#status"), go = $("#go");
+  S.repo = $("#repo").value.trim(); S.token = $("#tok").value.trim(); S.remember = $("#rem").checked;
+  if (!/^[\w.-]+\/[\w.-]+$/.test(S.repo)) { st.innerHTML = `<div class="status bad">Repository must look like owner/name.</div>`; return; }
+  if (!S.token) { st.innerHTML = `<div class="status bad">Paste a GitHub token first.</div>`; return; }
+  store.set("fb_repo", S.repo); S.remember ? store.set("fb_token", S.token) : store.del("fb_token");
+  go.disabled = true;
+  const say = (html, cls = "") => st.innerHTML = `<div class="status ${cls}">${html}</div>`;
+  try {
+    say("Checking the repository...");
+    const repo = await (await gh("/repos/" + S.repo)).json();
+    const t0 = Date.now();
+    say("Starting the build...");
+    await gh(`/repos/${S.repo}/actions/workflows/build.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: repo.default_branch, inputs: inputsForRun() }) });
+    let run = null;
+    for (let n = 0; n < 30 && !run; n++) {
+      await sleep(4000);
+      const l = await (await gh(`/repos/${S.repo}/actions/workflows/build.yml/runs?event=workflow_dispatch&per_page=5`)).json();
+      run = l.workflow_runs.find(r => Date.parse(r.created_at) >= t0 - 15000) || null;
+    }
+    if (!run) throw new Error("The run did not appear. Open the Actions page on GitHub to check.");
+    while (run.status !== "completed") {
+      say(`Building on GitHub... ${Math.round((Date.now() - t0) / 1000)} s. A normal build takes several minutes. <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Watch the run</a>`);
+      await sleep(8000);
+      run = await (await gh(`/repos/${S.repo}/actions/runs/${run.id}`)).json();
+    }
+    if (run.conclusion !== "success") { say(`The build ended with <strong>${esc(run.conclusion)}</strong>. <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Open the run</a> and read the red step. A wrong board name or a patch that does not fit an older version stops early.`, "bad"); go.disabled = false; return; }
+    const arts = (await (await gh(`/repos/${S.repo}/actions/runs/${run.id}/artifacts`)).json()).artifacts;
+    say(`<strong class="ok">Done.</strong> ${arts.length ? "Your firmware:" : "No files were attached."}
+      ${arts.map(a => `<div class="actions"><button class="btn" data-art="${a.id}" data-name="${esc(a.name)}" type="button">Download ${esc(a.name)}.zip</button></div>`).join("")}
+      <p class="help">Flash the <code>${S.fw === "ArduPilot" ? ".apj" : ".hex"}</code> inside the zip the same way as in the guide. If a download fails, <a href="${esc(run.html_url)}" target="_blank" rel="noopener">get it from the run page</a>.</p>`, "ok");
+    st.onclick = async e => {
+      const b = e.target.closest("[data-art]"); if (!b) return; b.disabled = true; b.textContent = "Downloading...";
+      try {
+        const r = await gh(`/repos/${S.repo}/actions/artifacts/${b.dataset.art}/zip`);
+        const url = URL.createObjectURL(await r.blob());
+        const a = document.createElement("a"); a.href = url; a.download = b.dataset.name + ".zip"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+        b.textContent = "Saved";
+      } catch { b.textContent = "Blocked by the browser. Use the run page link."; }
+      b.disabled = false;
+    };
+  } catch (e) {
+    say(`<strong class="bad">Stopped:</strong> ${esc(e.message)}`, "bad");
+  }
+  go.disabled = false;
+}
+
+/* ---------- shell ---------- */
+async function render(){
+  stepper();
+  const p = $("#panel"); p.onclick = null;
+  $("#back").disabled = step === 0;
+  $("#next").textContent = step === 4 ? "Review and build" : "Next";
+  $("#next").style.display = step === 5 ? "none" : "";
+  $("#next").disabled = !canNext();
+  const fn = [panelFirmware, panelVersion, panelBoard, panelOptions, panelBattery, panelBuild][step];
+  try { await fn(p); } catch (e) { p.innerHTML = `<h2>Something went wrong</h2><p class="bad">${esc(e.message)}</p><p class="help">Go back one step and try again.</p>`; }
+  $("#next").disabled = !canNext();
+}
+$("#back").onclick = () => { if (step > 0) { step--; render(); window.scrollTo(0, 0); } };
+$("#next").onclick = () => { if (canNext() && step < 5) { step++; render(); window.scrollTo(0, 0); } };
+render();
+</script>
+</body>
+</html>
