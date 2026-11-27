@@ -28,6 +28,23 @@ for x in stable:
     if x["mav-firmware-version"] == newest:
         boards[x["platform"]] = {"id": x.get("board_id")}
 
+# Per-board feature flags from the official build (features.txt): is scripting / the OSD compiled in?
+# Low-flash boards leave scripting out, so the VTX power script cannot run on them.
+import concurrent.futures
+
+def features(board):
+    url = f"https://firmware.ardupilot.org/Copter/stable-{newest}/{board}/features.txt"
+    try:
+        feats = set(urllib.request.urlopen(url, timeout=30).read().decode().split())
+    except Exception:
+        return board, None
+    return board, {"s": int("AP_SCRIPTING_ENABLED" in feats), "o": int("OSD_ENABLED" in feats)}
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
+    for name, f in ex.map(features, list(boards)):
+        if f:
+            boards[name].update(f)
+
 out = {
     "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
     "source": URL,
@@ -37,4 +54,5 @@ out = {
 }
 with open(OUT, "w", encoding="utf-8") as f:
     json.dump(out, f, separators=(",", ":"))
-print(f"wrote {OUT}: Copter {newest}, {len(boards)} boards")
+noscript = sum(1 for b in boards.values() if b.get("s") == 0)
+print(f"wrote {OUT}: Copter {newest}, {len(boards)} boards, {noscript} without scripting")

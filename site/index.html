@@ -117,12 +117,12 @@ let step = 0;
 const cache = {};
 
 /* ---------- data ---------- */
-async function getJSON(url){
-  const r = await fetch(url);
+async function getJSON(url, opts){
+  const r = await fetch(url, opts);
   if (!r.ok) throw new Error(url + " returned " + r.status);
   return r.json();
 }
-const loadAP = () => cache.ap || (cache.ap = getJSON("boards-ardupilot.json").then(d => { $("#apdate").textContent = "list refreshed " + d.generated; return d; }));
+const loadAP = () => cache.ap || (cache.ap = getJSON("boards-ardupilot.json", { cache: "no-cache" }).then(d => { $("#apdate").textContent = "list refreshed " + d.generated; return d; }));
 const loadBFReleases = () => cache.bfr || (cache.bfr = getJSON(BF_API + "/releases").then(l =>
   l.filter(r => r.type === "Stable" && r.cloudBuild && !r.withdrawn && /^20(2[5-9]|[3-9]\d)\./.test(r.release))));
 const loadBFTargets = () => cache.bft || (cache.bft = getJSON(BF_API + "/targets"));
@@ -233,12 +233,19 @@ async function panelBoard(p){
 
 async function panelOptions(p){
   if (S.fw === "ArduPilot") {
+    // Official build flags for this board: s = scripting compiled in, o = OSD compiled in (0 = no)
+    let bi = {}; try { bi = ((await loadAP()).boards[S.board]) || {}; } catch {}
+    const vtxOk = bi.s !== 0;
+    if (S.vtxPref === undefined) S.vtxPref = S.vtx;
+    S.vtx = S.vtxPref && vtxOk;
     p.innerHTML = `<h2>3. Options</h2><p class="help">ArduPilot Copter ${esc(S.version)} for ${esc(S.board)}.</p>
     <label class="chk"><input type="checkbox" id="mgrs" ${S.mgrs ? "checked" : ""}><span>MGRS on OSD<small>The GPS latitude element shows the MGRS grid reference.</small></span></label>
-    <label class="chk"><input type="checkbox" id="vtx" ${S.vtx ? "checked" : ""}><span>Adjustable VTX power script<small>Includes <code>vtx_power.lua</code> (the <code>VTXA_</code> parameters, Tramp or SmartAudio).</small></span></label>
+    <label class="chk"><input type="checkbox" id="vtx" ${S.vtx ? "checked" : ""} ${vtxOk ? "" : "disabled"}><span>Adjustable VTX power script<small>${vtxOk ? "Includes <code>vtx_power.lua</code> (the <code>VTXA_</code> parameters, Tramp or SmartAudio)." : "Not available: the official firmware for this board has no scripting, so the script cannot run."}</small></span></label>
+    ${bi.s === 0 ? `<div class="note warn">This is a low-flash board. MGRS adds code, so it may not fit. If the build fails near the end, run it again with MGRS off and send me the error lines.</div>` : ""}
+    ${bi.o === 0 ? `<div class="note warn">The official firmware for this board has no OSD, so MGRS on OSD will not show anything.</div>` : ""}
     <div class="note">Both off builds plain stock Copter for that board.</div>`;
     $("#mgrs").onchange = e => S.mgrs = e.target.checked;
-    $("#vtx").onchange = e => S.vtx = e.target.checked;
+    $("#vtx").onchange = e => { S.vtxPref = S.vtx = e.target.checked; };
     return;
   }
   p.innerHTML = `<h2>3. Options</h2><p>Loading the official option list...</p>`;
@@ -283,6 +290,21 @@ async function gh(path, opt = {}){
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* Network blips are normal on a phone (Android pauses the app when you switch away), so retry before giving up.
+   Real errors such as a wrong token or repo (4xx) are not retried. */
+async function ghRetry(path, opt){
+  let last;
+  for (let n = 0; n < 8; n++) {
+    try { return await gh(path, opt); }
+    catch (e) {
+      const m = String(e && e.message || e);
+      if (/^4\d\d /.test(m) && !/^429 /.test(m)) throw e;
+      last = e; await sleep(Math.min(3000 * (n + 1), 15000));
+    }
+  }
+  throw last;
+}
+
 /* Android app (Capacitor): the WebView cannot follow GitHub's redirect to the file or save blob downloads,
    so the app asks for the redirect itself, downloads natively and hands the zip to the share sheet. */
 const NATIVE = () => { const c = window.Capacitor; return !!(c && c.isNativePlatform && c.isNativePlatform()); };
@@ -324,10 +346,62 @@ function panelBuild(p){
   <div class="note">Make the token at GitHub, Settings, Developer settings, Fine-grained tokens. Give it only this repository and <strong>Actions: Read and write</strong>.</div>
   <div class="actions"><button class="btn" id="go" type="button">Build firmware</button>
   <a class="btn ghost" id="manual" target="_blank" rel="noopener" style="text-decoration:none"></a></div>
+  <div id="resumebox">${resumeHtml()}</div>
   <div id="status"></div>`;
+  const rb0 = $("#resume"); if (rb0) rb0.onclick = resumeRun;
   const man = () => { $("#manual").href = "https://github.com/" + $("#repo").value.trim() + "/actions/workflows/build.yml"; $("#manual").textContent = "Run on GitHub by hand"; };
   man(); $("#repo").oninput = man;
   $("#go").onclick = runBuild;
+}
+
+function savedRun(){ try { return JSON.parse(store.get("fb_run") || "null"); } catch { return null; } }
+function resumeHtml(){
+  const r = savedRun(); if (!r) return "";
+  return `<div class="note">Last build started from this app: <strong>${esc(r.fw)} ${esc(r.board)}</strong> in ${esc(r.repo)}. It keeps running on GitHub even if you leave the app.<div class="actions"><button class="btn ghost" id="resume" type="button">Check last build</button></div></div>`;
+}
+function showErr(e){
+  const m = String(e && e.message || e);
+  const net = /Failed to fetch|NetworkError|Load failed|network/i.test(m);
+  $("#status").innerHTML = `<div class="status bad"><strong>Stopped:</strong> ${esc(net ? "lost the connection to GitHub." : m)}${net ? " If a build was started, it keeps running there. When you are back online, tap <strong>Check last build</strong>." : ""}</div>`;
+  const box = $("#resumebox"); if (box) { box.innerHTML = resumeHtml(); const rb = $("#resume"); if (rb) rb.onclick = resumeRun; }
+}
+
+async function watchRun(run, t0, fw){
+  const st = $("#status");
+  const say = (html, cls = "") => st.innerHTML = `<div class="status ${cls}">${html}</div>`;
+  while (run.status !== "completed") {
+    say(`Building on GitHub... ${Math.round((Date.now() - t0) / 1000)} s. Several minutes is normal, and it keeps running if you leave the app. <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Watch the run</a>`);
+    await sleep(8000);
+    run = await (await ghRetry(`/repos/${S.repo}/actions/runs/${run.id}`)).json();
+  }
+  store.del("fb_run");
+  const box = $("#resumebox"); if (box) box.innerHTML = "";
+  if (run.conclusion !== "success") {
+    say(`The build ended with <strong>${esc(run.conclusion)}</strong>. <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Open the run</a> and read the red step. A wrong board name stops within seconds. A small-flash board can run out of space once MGRS or the VTX script is added: try again with those options off, and note the error lines.`, "bad");
+    return;
+  }
+  const arts = (await (await ghRetry(`/repos/${S.repo}/actions/runs/${run.id}/artifacts`)).json()).artifacts;
+  say(`<strong class="ok">Done.</strong> ${arts.length ? "Your firmware:" : "No files were attached."}
+    ${arts.map(a => `<div class="actions"><button class="btn" data-art="${a.id}" data-name="${esc(a.name)}" type="button">Download ${esc(a.name)}.zip</button></div>`).join("")}
+    <p class="help">Flash the <code>${fw === "ArduPilot" ? ".apj" : ".hex"}</code> inside the zip the same way as in the guide. If a download fails, <a href="${esc(run.html_url)}" target="_blank" rel="noopener">get it from the run page</a>.</p>`, "ok");
+  st.onclick = async e => {
+    const b = e.target.closest("[data-art]"); if (!b) return; b.disabled = true; b.textContent = "Downloading...";
+    try {
+      await saveArtifact(b.dataset.art, b.dataset.name);
+      b.textContent = "Saved";
+    } catch (err) { b.textContent = "Could not download (" + (err && err.message || "blocked") + "). Use the run page link."; }
+    b.disabled = false;
+  };
+}
+
+async function resumeRun(){
+  const r = savedRun(); if (!r) return;
+  S.repo = r.repo; S.token = ($("#tok") && $("#tok").value.trim()) || S.token;
+  if (!S.token) { $("#status").innerHTML = `<div class="status bad">Paste your GitHub token first.</div>`; return; }
+  try {
+    const run = await (await ghRetry(`/repos/${r.repo}/actions/runs/${r.id}`)).json();
+    await watchRun(run, r.t0, r.fw);
+  } catch (e) { showErr(e); }
 }
 
 async function runBuild(){
@@ -340,38 +414,20 @@ async function runBuild(){
   const say = (html, cls = "") => st.innerHTML = `<div class="status ${cls}">${html}</div>`;
   try {
     say("Checking the repository...");
-    const repo = await (await gh("/repos/" + S.repo)).json();
+    const repo = await (await ghRetry("/repos/" + S.repo)).json();
     const t0 = Date.now();
     say("Starting the build...");
     await gh(`/repos/${S.repo}/actions/workflows/build.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: repo.default_branch, inputs: inputsForRun() }) });
     let run = null;
     for (let n = 0; n < 30 && !run; n++) {
       await sleep(4000);
-      const l = await (await gh(`/repos/${S.repo}/actions/workflows/build.yml/runs?event=workflow_dispatch&per_page=5`)).json();
+      const l = await (await ghRetry(`/repos/${S.repo}/actions/workflows/build.yml/runs?event=workflow_dispatch&per_page=5`)).json();
       run = l.workflow_runs.find(r => Date.parse(r.created_at) >= t0 - 15000) || null;
     }
     if (!run) throw new Error("The run did not appear. Open the Actions page on GitHub to check.");
-    while (run.status !== "completed") {
-      say(`Building on GitHub... ${Math.round((Date.now() - t0) / 1000)} s. A normal build takes several minutes. <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Watch the run</a>`);
-      await sleep(8000);
-      run = await (await gh(`/repos/${S.repo}/actions/runs/${run.id}`)).json();
-    }
-    if (run.conclusion !== "success") { say(`The build ended with <strong>${esc(run.conclusion)}</strong>. <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Open the run</a> and read the red step. A wrong board name or a patch that does not fit an older version stops early.`, "bad"); go.disabled = false; return; }
-    const arts = (await (await gh(`/repos/${S.repo}/actions/runs/${run.id}/artifacts`)).json()).artifacts;
-    say(`<strong class="ok">Done.</strong> ${arts.length ? "Your firmware:" : "No files were attached."}
-      ${arts.map(a => `<div class="actions"><button class="btn" data-art="${a.id}" data-name="${esc(a.name)}" type="button">Download ${esc(a.name)}.zip</button></div>`).join("")}
-      <p class="help">Flash the <code>${S.fw === "ArduPilot" ? ".apj" : ".hex"}</code> inside the zip the same way as in the guide. If a download fails, <a href="${esc(run.html_url)}" target="_blank" rel="noopener">get it from the run page</a>.</p>`, "ok");
-    st.onclick = async e => {
-      const b = e.target.closest("[data-art]"); if (!b) return; b.disabled = true; b.textContent = "Downloading...";
-      try {
-        await saveArtifact(b.dataset.art, b.dataset.name);
-        b.textContent = "Saved";
-      } catch (err) { b.textContent = "Could not download (" + (err && err.message || "blocked") + "). Use the run page link."; }
-      b.disabled = false;
-    };
-  } catch (e) {
-    say(`<strong class="bad">Stopped:</strong> ${esc(e.message)}`, "bad");
-  }
+    store.set("fb_run", JSON.stringify({ repo: S.repo, id: run.id, t0, fw: S.fw, board: S.board }));
+    await watchRun(run, t0, S.fw);
+  } catch (e) { showErr(e); }
   go.disabled = false;
 }
 

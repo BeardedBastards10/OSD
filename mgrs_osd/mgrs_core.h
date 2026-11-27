@@ -17,6 +17,31 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * ArduPilot redefines the plain double-precision names (sin, floor, sqrt, ...) as macros that fail
+ * to compile on boards without a double-precision FPU (most F4/F7 boards). The __builtin_ names are
+ * not touched by those macros and call the same library functions, so use them for every math call.
+ */
+#if defined(__GNUC__)
+#define MG_FLOOR(x)    __builtin_floor(x)
+#define MG_SQRT(x)     __builtin_sqrt(x)
+#define MG_SIN(x)      __builtin_sin(x)
+#define MG_COS(x)      __builtin_cos(x)
+#define MG_ATAN2(y, x) __builtin_atan2((y), (x))
+#define MG_SINH(x)     __builtin_sinh(x)
+#define MG_COSH(x)     __builtin_cosh(x)
+#define MG_ATANH(x)    __builtin_atanh(x)
+#else
+#define MG_FLOOR(x)    floor(x)
+#define MG_SQRT(x)     sqrt(x)
+#define MG_SIN(x)      sin(x)
+#define MG_COS(x)      cos(x)
+#define MG_ATAN2(y, x) atan2((y), (x))
+#define MG_SINH(x)     sinh(x)
+#define MG_COSH(x)     cosh(x)
+#define MG_ATANH(x)    atanh(x)
+#endif
+
 #ifndef MGRS_DIGITS
 #define MGRS_DIGITS 4
 #endif
@@ -55,7 +80,7 @@ static inline int mgrs_format(int32_t lat_e7, int32_t lon_e7, int digits, char *
     };
 
     /* UTM zone, with the Norway and Svalbard exceptions */
-    int zone = (int)floor((lon + 180.0) / 6.0) + 1;
+    int zone = (int)MG_FLOOR((lon + 180.0) / 6.0) + 1;
     if (zone > 60) { zone = 60; }
     if (lat >= 56 && lat < 64 && lon >= 3 && lon < 12) {
         zone = 32;
@@ -70,31 +95,31 @@ static inline int mgrs_format(int32_t lat_e7, int32_t lon_e7, int digits, char *
     const double DEG2RAD = 3.14159265358979323846 / 180.0;
     const double phi = lat * DEG2RAD;
     const double lam = (lon - lon0) * DEG2RAD;
-    const double c = 2.0 * sqrt(n) / (1.0 + n);
-    const double sphi = sin(phi);
-    const double t = sinh(atanh(sphi) - c * atanh(c * sphi));
-    const double xi0 = atan2(t, cos(lam));
-    const double eta0 = atanh(sin(lam) / sqrt(1.0 + t * t));
+    const double c = 2.0 * MG_SQRT(n) / (1.0 + n);
+    const double sphi = MG_SIN(phi);
+    const double t = MG_SINH(MG_ATANH(sphi) - c * MG_ATANH(c * sphi));
+    const double xi0 = MG_ATAN2(t, MG_COS(lam));
+    const double eta0 = MG_ATANH(MG_SIN(lam) / MG_SQRT(1.0 + t * t));
     double xi = xi0, eta = eta0;
     for (int j = 1; j <= 6; j++) {
-        xi  += alpha[j - 1] * sin(2 * j * xi0) * cosh(2 * j * eta0);
-        eta += alpha[j - 1] * cos(2 * j * xi0) * sinh(2 * j * eta0);
+        xi  += alpha[j - 1] * MG_SIN(2 * j * xi0) * MG_COSH(2 * j * eta0);
+        eta += alpha[j - 1] * MG_COS(2 * j * xi0) * MG_SINH(2 * j * eta0);
     }
     double e = 500000.0 + K0 * BIG_A * eta;
     double nn = K0 * BIG_A * xi;
     if (lat < 0) { nn += 10000000.0; }
 
-    int band = (int)floor((lat + 80.0) / 8.0);
+    int band = (int)MG_FLOOR((lat + 80.0) / 8.0);
     if (band > 19) { band = 19; }
     const int set = (zone - 1) % 3;
-    const int col = (int)floor(e / 100000.0);
-    const int row = ((int)floor(nn / 100000.0) + ((zone % 2 == 0) ? 5 : 0)) % 20;
+    const int col = (int)MG_FLOOR(e / 100000.0);
+    const int row = ((int)MG_FLOOR(nn / 100000.0) + ((zone % 2 == 0) ? 5 : 0)) % 20;
     if (col < 1 || col > 8) {
         return 0;
     }
 
-    long ei = (long)floor(e) % 100000;
-    long ni = (long)floor(nn) % 100000;
+    long ei = (long)MG_FLOOR(e) % 100000;
+    long ni = (long)MG_FLOOR(nn) % 100000;
     long div = 1;
     for (int i = digits; i < 5; i++) { div *= 10; }
     ei /= div;
